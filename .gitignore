@@ -1,0 +1,8 @@
+build/
+node_modules/
+test/build/
+.lock-waf*
+.DS_Store
+dist/
+src/pkjs/planner_page.js
+src/pkjs/planner_model.js

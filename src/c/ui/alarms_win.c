@@ -1,0 +1,244 @@
+#include <pebble.h>
+#include "alarms_win.h"
+#include "poster.h"
+#include "railtap.h"
+#include "../platform/store.h"
+#include "../platform/clock.h"
+#include "../platform/wake.h"
+
+#define ROW_H 52
+#define TEXT_X 12
+#define DIGITS_W 56
+#define COLON_W 14
+#define TIME_Y 40
+#define DAYS_Y 104
+#define MODE_Y 150
+
+enum { F_HOUR, F_MIN, F_DAYS, F_MODE };
+enum { M_TOGGLE, M_CHANGE, M_DELETE };
+
+static Window *s_list_win, *s_edit_win;
+static MenuLayer *s_menu;
+static Layer *s_canvas;
+static int s_edit;  // the alarm being changed, or -1 for a new one
+static int s_min, s_days_i, s_mode, s_field;
+static int s_menu_row, s_menu_choice;
+
+static void changed(void) {
+  store_save_alarms();
+  wake_rearm();
+}
+
+// The editor: Up and Down change the underlined field, Select moves on and saves after the last.
+
+// One field; the one the rail changes is underlined, as wide as its text.
+static void field(GContext *ctx, const char *text, GFont f, GRect box, GTextAlignment al, bool focused) {
+  graphics_draw_text(ctx, text, f, box, GTextOverflowModeTrailingEllipsis, al, NULL);
+  if (!focused) return;
+  int w = graphics_text_layout_get_content_size(text, f, box, GTextOverflowModeTrailingEllipsis, al).w;
+  int x = al == GTextAlignmentRight ? box.origin.x + box.size.w - w : box.origin.x;
+  graphics_fill_rect(ctx, GRect(x, box.origin.y + box.size.h + 4, w, 4), 0, GCornerNone);
+}
+
+static void edit_draw(Layer *layer, GContext *ctx) {
+  GRect b = layer_get_bounds(layer);
+  GColor bg = poster_kind_color(POSTER_ALARM);
+  poster_draw_background(ctx, b, bg);
+  RailAction rail[3] = { { G_PLUS, NULL }, { G_START, "next" }, { G_MINUS, NULL } };
+  if (s_field == F_MODE) rail[1] = (RailAction){ G_DONE, "save" };
+  poster_draw_rail(ctx, b, bg, rail);
+  poster_draw_back_hint(ctx, s_edit < 0 ? "New alarm" : "Alarm");
+
+  bool h24 = clock_is_24h_style();
+  int h = s_min / 60;
+  char hh[4], mm[4];
+  snprintf(hh, sizeof(hh), h24 ? "%02d" : "%d", h24 ? h : h % 12 ? h % 12 : 12);
+  snprintf(mm, sizeof(mm), "%02d", s_min % 60);
+  GFont big = fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
+  int mx = TEXT_X + DIGITS_W + COLON_W;
+  graphics_context_set_text_color(ctx, GColorBlack);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  field(ctx, hh, big, GRect(TEXT_X, TIME_Y, DIGITS_W, 48), GTextAlignmentRight, s_field == F_HOUR);
+  field(ctx, ":", big, GRect(TEXT_X + DIGITS_W, TIME_Y, COLON_W, 48), GTextAlignmentCenter, false);
+  field(ctx, mm, big, GRect(mx, TIME_Y, DIGITS_W, 48), GTextAlignmentLeft, s_field == F_MIN);
+  if (!h24) field(ctx, h < 12 ? "am" : "pm", fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                  GRect(mx + DIGITS_W, TIME_Y + 20, 30, 22), GTextAlignmentLeft, false);
+  field(ctx, cc_days_name(cc_days_preset(s_days_i)), fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
+        GRect(TEXT_X, DAYS_Y, POSTER_TEXT_W, 34), GTextAlignmentLeft, s_field == F_DAYS);
+  field(ctx, s_mode == CC_ALARM_SOUND ? "Sound + vibrate" : "Vibrate only", fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+        GRect(TEXT_X, MODE_Y, POSTER_TEXT_W, 30), GTextAlignmentLeft, s_field == F_MODE);
+  if (s_mode == CC_ALARM_SOUND && speaker_is_muted())  // the alarm would only vibrate
+    graphics_draw_text(ctx, "The watch is muted", fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(TEXT_X, MODE_Y + 40, POSTER_TEXT_W, 22),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+}
+
+static void step(int dir) {
+  if (s_field == F_HOUR) s_min = (s_min + dir * 60 + 1440) % 1440;
+  else if (s_field == F_MIN) s_min = s_min / 60 * 60 + (s_min % 60 + dir + 60) % 60;
+  else if (s_field == F_DAYS) s_days_i = (s_days_i + dir + CC_DAYS_PRESETS) % CC_DAYS_PRESETS;
+  else s_mode = !s_mode;
+  layer_mark_dirty(s_canvas);
+}
+static void edit_up(ClickRecognizerRef r, void *ctx) { step(1); }
+static void edit_down(ClickRecognizerRef r, void *ctx) { step(-1); }
+
+static void edit_select(ClickRecognizerRef r, void *ctx) {
+  if (s_field < F_MODE) {
+    s_field++;
+    layer_mark_dirty(s_canvas);
+    return;
+  }
+  int i = s_edit;
+  if (i < 0) {
+    if (g_alarms.n >= CC_ALARM_MAX) return;
+    i = g_alarms.n++;
+  }
+  cc_alarm_set(&g_alarms.a[i], (uint16_t)s_min, cc_days_preset(s_days_i), clock_now_local());
+  g_alarms.a[i].mode = (uint8_t)s_mode;
+  changed();
+  window_stack_remove(s_edit_win, true);
+}
+
+static void edit_back(ClickRecognizerRef r, void *ctx) {
+  if (s_field == F_HOUR) { window_stack_remove(s_edit_win, true); return; }
+  s_field--;
+  layer_mark_dirty(s_canvas);
+}
+
+// A tap on the hour, the minutes, the days or the sound underlines it; the rail's + and - change it.
+static void edit_tap(int x, int y) {
+  s_field = y >= MODE_Y ? F_MODE : y >= DAYS_Y ? F_DAYS : x < TEXT_X + DIGITS_W + COLON_W / 2 ? F_HOUR : F_MIN;
+  layer_mark_dirty(s_canvas);
+}
+
+static void edit_clicks(void *ctx) {
+  window_single_repeating_click_subscribe(BUTTON_ID_UP, 100, edit_up);
+  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 100, edit_down);
+  window_single_click_subscribe(BUTTON_ID_SELECT, edit_select);
+  window_single_click_subscribe(BUTTON_ID_BACK, edit_back);
+}
+
+static void edit_load(Window *w) {
+  Layer *root = window_get_root_layer(w);
+  s_canvas = layer_create(layer_get_bounds(root));
+  layer_set_update_proc(s_canvas, edit_draw);
+  layer_add_child(root, s_canvas);
+}
+
+static void edit_unload(Window *w) { layer_destroy(s_canvas); }
+
+static void edit_open(int i) {
+  s_edit = i;
+  s_field = F_HOUR;
+  s_min = i < 0 ? 7 * 60 : g_alarms.a[i].at_min;
+  s_days_i = i < 0 ? 1 : cc_days_index(g_alarms.a[i].days);  // new: every day, with sound
+  s_mode = i < 0 ? CC_ALARM_SOUND : g_alarms.a[i].mode;
+  if (!s_edit_win) {
+    s_edit_win = window_create();
+    window_set_window_handlers(s_edit_win, (WindowHandlers){ .load = edit_load, .unload = edit_unload });
+    window_set_click_config_provider(s_edit_win, edit_clicks);
+    railtap_register(s_edit_win, &(RailTaps){ edit_up, edit_select, edit_down, NULL, edit_tap }, false);
+  }
+  window_stack_push(s_edit_win, true);
+}
+
+// The list: one row per alarm, then "New alarm" while there is room.
+
+static uint16_t num_rows(MenuLayer *m, uint16_t section, void *ctx) {
+  return (uint16_t)(g_alarms.n + (g_alarms.n < CC_ALARM_MAX));
+}
+static int16_t row_h(MenuLayer *m, MenuIndex *i, void *ctx) { return ROW_H; }
+
+static void draw_row(GContext *ctx, const Layer *cell, MenuIndex *idx, void *data) {
+  GRect b = layer_get_bounds(cell);
+  bool hl = menu_cell_layer_is_highlighted(cell);
+  GColor accent = poster_kind_color(POSTER_ALARM);
+  graphics_context_set_fill_color(ctx, hl ? accent : GColorBlack);
+  graphics_fill_rect(ctx, b, 0, GCornerNone);
+  int w = b.size.w - 2 * TEXT_X;
+  GFont title_f = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorWhite);
+  if (idx->row >= g_alarms.n) {
+    graphics_draw_text(ctx, "New alarm", title_f, GRect(TEXT_X, 10, w, 30), GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+    return;
+  }
+  const CcAlarm *a = &g_alarms.a[idx->row];
+  if (!hl && a->on) {
+    graphics_context_set_fill_color(ctx, accent);
+    graphics_fill_rect(ctx, GRect(0, 6, 4, b.size.h - 12), 0, GCornerNone);
+  }
+  char t[12], d[36];
+  poster_fmt_time(a->at_min, t, sizeof(t));
+  snprintf(d, sizeof(d), "%s · %s%s", cc_days_name(a->days), a->mode == CC_ALARM_VIBRATE ? "vibrate" : "sound",
+           a->on ? "" : " · off");
+  graphics_draw_text(ctx, t, title_f, GRect(TEXT_X, 0, w, 30), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorLightGray);
+  graphics_draw_text(ctx, d, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(TEXT_X, 27, w, 22),
+                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+}
+
+static void menu_perform(ActionMenu *menu, const ActionMenuItem *action, void *ctx) {
+  s_menu_choice = (int)action_menu_item_get_action_data(action);
+}
+
+static void menu_closed(ActionMenu *menu, const ActionMenuItem *performed, void *ctx) {
+  action_menu_hierarchy_destroy(action_menu_get_root_level(menu), NULL, NULL);
+  CcAlarm *a = &g_alarms.a[s_menu_row];
+  if (s_menu_choice == M_CHANGE) { edit_open(s_menu_row); return; }
+  if (s_menu_choice == M_DELETE) cc_alarm_remove(&g_alarms, s_menu_row);
+  else if (s_menu_choice == M_TOGGLE && a->on) { a->on = 0; a->snooze = 0; }
+  else if (s_menu_choice == M_TOGGLE) cc_alarm_set(a, a->at_min, a->days, clock_now_local());  // from now on
+  else return;
+  changed();
+  if (s_menu) menu_layer_reload_data(s_menu);
+}
+
+static void select_click(MenuLayer *m, MenuIndex *idx, void *ctx) {
+  if (idx->row >= g_alarms.n) { edit_open(-1); return; }
+  s_menu_row = idx->row;
+  s_menu_choice = -1;
+  ActionMenuLevel *level = action_menu_level_create(3);
+  action_menu_level_add_action(level, g_alarms.a[s_menu_row].on ? "Turn off" : "Turn on", menu_perform, (void *)M_TOGGLE);
+  action_menu_level_add_action(level, "Change", menu_perform, (void *)M_CHANGE);
+  action_menu_level_add_action(level, "Delete", menu_perform, (void *)M_DELETE);
+  ActionMenuConfig cfg = {
+    .root_level = level,
+    .colors = { .background = poster_kind_color(POSTER_ALARM), .foreground = GColorBlack },
+    .align = ActionMenuAlignCenter,
+    .did_close = menu_closed,
+  };
+  action_menu_open(&cfg);
+}
+
+static void list_load(Window *w) {
+  Layer *root = window_get_root_layer(w);
+  window_set_background_color(w, GColorBlack);
+  s_menu = menu_layer_create(layer_get_bounds(root));
+  menu_layer_set_normal_colors(s_menu, GColorBlack, GColorWhite);
+  menu_layer_set_highlight_colors(s_menu, GColorBlack, GColorBlack);
+  menu_layer_set_callbacks(s_menu, NULL, (MenuLayerCallbacks){
+    .get_num_rows = num_rows,
+    .get_cell_height = row_h,
+    .draw_row = draw_row,
+    .select_click = select_click,
+  });
+  menu_layer_set_click_config_onto_window(s_menu, w);
+  layer_add_child(root, menu_layer_get_layer(s_menu));
+}
+
+static void list_appear(Window *w) { menu_layer_reload_data(s_menu); }  // back from the editor
+
+static void list_unload(Window *w) {
+  menu_layer_destroy(s_menu);
+  s_menu = NULL;
+}
+
+void alarms_win_open(void) {
+  if (!s_list_win) {
+    s_list_win = window_create();
+    window_set_window_handlers(s_list_win, (WindowHandlers){ .load = list_load, .appear = list_appear, .unload = list_unload });
+  }
+  if (window_stack_contains_window(s_list_win)) window_stack_remove(s_list_win, false);
+  window_stack_push(s_list_win, true);
+}

@@ -1,0 +1,41 @@
+{
+  "name": "adhd-coach",
+  "author": "Swarmkind",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "ADHD Coach",
+    "uuid": "ac7c8db9-c7a8-42bc-b730-c61437d454aa",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "capabilities": [
+      "configurable"
+    ],
+    "messageKeys": [
+      "CMD",
+      "DATA",
+      "REV",
+      "ARG"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        }
+      ]
+    }
+  }
+}
