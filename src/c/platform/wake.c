@@ -15,6 +15,7 @@
 #include "../core/cc_state.h"
 #include "../core/cc_time.h"
 #include "../core/cc_alarm.h"
+#include "../core/cc_todo.h"
 
 #define FIRES_MAX 32
 
@@ -24,10 +25,11 @@ static cc_sec step_end(void) {
   return g_run.active && !g_run.paused ? g_run.step_end : CC_NEVER;
 }
 
-// Items, the running step, Focus and alarms, earliest first.
+// Items, the running step, Focus, alarms and note to-dos, earliest first.
 static int collect(cc_sec now, CcFire f[]) {
-  int n = cc_collect(g_items, g_nitems, &g_day, step_end(), cc_focus_end(&g_focus), now, &g_cfg, f, FIRES_MAX);
-  return cc_alarm_fires(&g_alarms, now, f, n, FIRES_MAX);
+  int n = cc_collect(g_items, g_nitems, g_day, step_end(), cc_focus_end(&g_focus), now, &g_cfg, f, FIRES_MAX);
+  n = cc_alarm_fires(&g_alarms, now, f, n, FIRES_MAX);
+  return cc_todo_fires(g_todos, f, n, FIRES_MAX);
 }
 
 static void focus_timer_fired(void *data) {
@@ -91,8 +93,15 @@ static void alert_done(const CcFire *fire, CcAction a) {
   if (fire->kind == CC_FIRE_HEADSUP) { coach_apply(fire->id, CC_A_HEADSUP_SEEN, 0); return; }
   if (a == CC_A_START) { coach_start(fire->id); return; }
   const CcItem *it = coach_item(fire->id);
-  cc_sec occ = it ? cc_occurrence_for(it, cc_state_for(&g_day, fire->id), fire->at, &g_cfg) : fire->at;
+  cc_sec occ = it ? cc_occurrence_for(it, cc_state_for(g_day, fire->id), fire->at, &g_cfg) : fire->at;
   coach_apply(fire->id, a, occ);
+}
+
+static void todo_done(const CcFire *fire, CcAction a) {
+  cc_todo_answer(g_todos, fire->id, a, clock_now_local(), g_cfg.later_task_min);
+  store_save_todos();
+  ui_refresh_all();
+  wake_rearm();
 }
 
 int wake_push_due(void) {
@@ -105,6 +114,7 @@ int wake_push_due(void) {
   for (int i = 0; i < k; i++) {
     APP_LOG(APP_LOG_LEVEL_INFO, "due: item %d kind %d prio %d", due[i].id, due[i].kind, due[i].priority);
     if (due[i].kind == CC_FIRE_ALARM) { alarm_win_ring(due[i].id); shown++; continue; }  // Quiet Time or not
+    if (due[i].kind == CC_FIRE_NOTE) { alert_win_push(&due[i], todo_done); shown++; continue; }  // like a task
     const CcItem *it = coach_item(due[i].id);
     if (quiet && it && cc_quiet_holds(it, due[i].kind)) {  // no screen, no buzz, not missed
       APP_LOG(APP_LOG_LEVEL_INFO, "quiet: skip item %d", due[i].id);
@@ -125,7 +135,7 @@ int wake_push_due(void) {
 void wake_process_due(void) {
   cc_sec now = clock_now_local();
   coach_ensure_today(now);
-  if (cc_sweep(&g_day, g_items, g_nitems, now, &g_cfg)) store_save_day();
+  if (cc_sweep(g_day, g_items, g_nitems, now, &g_cfg)) store_save_day();
   wake_push_due();
   store_save_run();
   wake_rearm();

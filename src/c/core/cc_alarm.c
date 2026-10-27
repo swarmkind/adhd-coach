@@ -11,6 +11,7 @@ static const char *const NAMES[CC_DAYS_PRESETS] = { "Once", "Every day", "Weekda
 cc_sec cc_alarm_next(const CcAlarm *a, cc_sec now) {
   if (!a->on) return CC_NEVER;
   if (a->snooze >= now - CC_ALARM_LATE) return a->snooze;  // never when 0 (not snoozed)
+  if (a->days & CC_ALARM_IN) return CC_NEVER;  // it only ever rings at its snooze time
   cc_sec lo = now - CC_ALARM_LATE > a->handled ? now - CC_ALARM_LATE : a->handled + 1;
   for (int32_t d = cc_day_of(lo), last = d + 7; d <= last; d++) {
     cc_sec t = cc_at(d, a->at_min);
@@ -21,7 +22,7 @@ cc_sec cc_alarm_next(const CcAlarm *a, cc_sec now) {
 
 void cc_alarm_set(CcAlarm *a, uint16_t at_min, uint8_t days, cc_sec now) {
   a->at_min = at_min;
-  a->days = days;
+  a->days = days & ~CC_ALARM_IN;  // turned back on, an "in N min" alarm is a plain once alarm
   a->on = 1;
   a->handled = now;
   a->snooze = 0;
@@ -30,7 +31,21 @@ void cc_alarm_set(CcAlarm *a, uint16_t at_min, uint8_t days, cc_sec now) {
 void cc_alarm_stop(CcAlarm *a, cc_sec now) {
   a->handled = now;
   a->snooze = 0;
-  if (!a->days) a->on = 0;
+  if (!(a->days & ~CC_ALARM_IN)) a->on = 0;
+}
+
+// To the second, so it rides on the snooze: a once alarm already snoozed until then.
+void cc_alarm_set_in(CcAlarm *a, int minutes, cc_sec now) {
+  cc_sec at = now + minutes * 60;
+  cc_alarm_set(a, (uint16_t)cc_min_of(at), 0, now);
+  a->days = CC_ALARM_IN;
+  a->snooze = at;
+}
+
+void cc_alarms_stop(CcAlarms *l, int i, cc_sec now) {
+  if (i < 0 || i >= l->n) return;
+  if (l->a[i].days & CC_ALARM_IN) cc_alarm_remove(l, i);
+  else cc_alarm_stop(&l->a[i], now);
 }
 
 void cc_alarm_snooze(CcAlarm *a, cc_sec now) {

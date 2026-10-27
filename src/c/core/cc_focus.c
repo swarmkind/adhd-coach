@@ -57,6 +57,13 @@ void cc_focus_add(CcFocus *f, int minutes, cc_sec now) {
   else f->phase_end = (f->phase_end > now ? f->phase_end : now) + minutes * 60;
 }
 
+void cc_focus_reset(CcFocus *f) {
+  if (!f->active) return;
+  f->paused = 1;
+  f->paused_left = len_s(f);
+  f->phase_end = CC_NEVER;
+}
+
 int32_t cc_focus_remaining(const CcFocus *f, cc_sec now) {
   if (!f->active) return 0;
   if (f->paused) return f->paused_left;

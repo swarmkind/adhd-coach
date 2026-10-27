@@ -45,6 +45,11 @@ void buzz_tick(void) {
   PLAY(40);
   TONE(40, N(96, 40));
 }
+void buzz_step_done(void) {  // a step's timer reached zero: firm, with three beeps, as you may be mid-exercise
+  vibes_cancel();
+  PLAY(300, 150, 300);
+  TONE(90, N(88, 150), N(0, 100), N(88, 150), N(0, 100), N(93, 300));
+}
 void buzz_missed(void) {
   PLAY(40, 120, 40);
   TONE(50, N(76, 80), N(0, 60), N(72, 140));  // falling: it didn't work

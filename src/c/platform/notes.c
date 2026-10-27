@@ -6,12 +6,16 @@
 #define K_NOTE_TOMB 44
 #define NOTE_SLOTS NOTES_SLOTS
 
-static CcNoteSlot s_slots[NOTE_SLOTS];
+static CcNoteSlot *s_slots;  // [NOTE_SLOTS] on the heap from the first use: the app image must stay under 64 KB
 static bool s_ready;
-static uint8_t s_buf[PERSIST_DATA_MAX_LENGTH];
-static char s_text[CC_NOTE_TEXT_MAX + 1];
+static uint8_t *s_buf;  // [PERSIST_DATA_MAX_LENGTH] on the heap from the first use
+static char *s_text;  // a scratch transcript for reading headers, on the heap from the first use
 
 static uint32_t key(int slot, int part) { return K_NOTE + slot * 4 + part; }
+
+static void need_buf(void) {
+  if (!s_buf) s_buf = malloc(PERSIST_DATA_MAX_LENGTH);
+}
 
 static bool write_key(uint32_t k, int len) {
   if (len < 0) { APP_LOG(APP_LOG_LEVEL_ERROR, "note pack failed for key %d", (int)k); return false; }
@@ -21,14 +25,17 @@ static bool write_key(uint32_t k, int len) {
 }
 
 static bool read_head(int slot, CcNote *n, char *text) {
-  if (!persist_exists(key(slot, 0))) return false;
-  int len = persist_read_data(key(slot, 0), s_buf, sizeof(s_buf));
+  if (!text || !s_buf || !persist_exists(key(slot, 0))) return false;  // no scratch buffer: no heap left
+  int len = persist_read_data(key(slot, 0), s_buf, PERSIST_DATA_MAX_LENGTH);
   return len > 0 && cc_unpack_note_head(s_buf, len, n, text);
 }
 
 static void ensure(void) {
   if (s_ready) return;
   s_ready = true;
+  need_buf();
+  s_slots = calloc(NOTE_SLOTS, sizeof(*s_slots));  // ~800 bytes; fails only with no heap at all
+  s_text = malloc(CC_NOTE_TEXT_MAX + 1);
   CcNote n;
   for (int i = 0; i < NOTE_SLOTS; i++) {
     bool used = read_head(i, &n, s_text);
@@ -74,7 +81,7 @@ bool notes_read(uint32_t id, CcNote *n, char *text) {
   int slot = slot_of(id);
   if (slot < 0 || !read_head(slot, n, text)) return false;
   for (int p = 1; p < cc_note_parts(n->text_len); p++) {
-    int len = persist_exists(key(slot, p)) ? persist_read_data(key(slot, p), s_buf, sizeof(s_buf)) : -1;
+    int len = persist_exists(key(slot, p)) ? persist_read_data(key(slot, p), s_buf, PERSIST_DATA_MAX_LENGTH) : -1;
     if (len <= 0 || !cc_unpack_note_part(s_buf, len, n, p, text)) {  // a lost part: keep what reads
       APP_LOG(APP_LOG_LEVEL_WARNING, "note %u part %d unreadable", (unsigned)id, p);
       n->text_len = (uint16_t)strlen(text);
@@ -95,8 +102,8 @@ bool notes_add(const CcNote *in, const char *text) {
   }
   erase(slot);
   for (int p = 1; p < cc_note_parts(n.text_len); p++)  // parts first, header last
-    if (!write_key(key(slot, p), cc_pack_note_part(&n, text, p, s_buf, sizeof(s_buf)))) return false;
-  if (!write_key(key(slot, 0), cc_pack_note_head(&n, text, s_buf, sizeof(s_buf)))) return false;
+    if (!write_key(key(slot, p), cc_pack_note_part(&n, text, p, s_buf, PERSIST_DATA_MAX_LENGTH))) return false;
+  if (!write_key(key(slot, 0), cc_pack_note_head(&n, text, s_buf, PERSIST_DATA_MAX_LENGTH))) return false;
   s_slots[slot] = (CcNoteSlot){ n.id, 1, n.flags };
   return true;
 }
@@ -114,7 +121,7 @@ static bool rewrite_head(uint32_t id, const char *name, uint8_t set, uint8_t cle
     strcpy(n.name, t);
   }
   n.flags = (uint8_t)((n.flags | set) & ~clear);
-  if (!write_key(key(slot, 0), cc_pack_note_head(&n, s_text, s_buf, sizeof(s_buf)))) return false;
+  if (!write_key(key(slot, 0), cc_pack_note_head(&n, s_text, s_buf, PERSIST_DATA_MAX_LENGTH))) return false;
   s_slots[slot].flags = n.flags;
   return true;
 }
@@ -140,7 +147,9 @@ int notes_unsynced(uint32_t *ids, int max, bool all) {
 }
 
 static int read_tombs(uint32_t *out) {
-  int len = persist_exists(K_NOTE_TOMB) ? persist_read_data(K_NOTE_TOMB, s_buf, sizeof(s_buf)) : -1;
+  need_buf();
+  if (!s_buf) return 0;
+  int len = persist_exists(K_NOTE_TOMB) ? persist_read_data(K_NOTE_TOMB, s_buf, PERSIST_DATA_MAX_LENGTH) : -1;
   if (len < 2 || s_buf[0] != CC_CODEC_V1 || s_buf[1] > NOTES_TOMB_MAX || len < 2 + 4 * s_buf[1]) return 0;
   int n = s_buf[1];
   for (int i = 0; i < n; i++) {
@@ -151,6 +160,8 @@ static int read_tombs(uint32_t *out) {
 }
 
 static void write_tombs(const uint32_t *ids, int n) {
+  need_buf();
+  if (!s_buf) return;
   s_buf[0] = CC_CODEC_V1;
   s_buf[1] = (uint8_t)n;
   for (int i = 0; i < n; i++) {

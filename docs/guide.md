@@ -49,6 +49,7 @@ Home is meant to stay on screen all day, as your clock:
 - The big time and the date, with a bell and the time of your next alarm if one is due within a day.
 - The middle shows what's **next** and how soon ("in 30 min"), or what's running **now** (a routine you left part way, or a Focus session).
 - The bottom shows today's reminder progress, for example 0/8 glasses of water.
+- Above "focus", a small battery with five bars inside, 20% each. At 20% or less, one red bar is left.
 
 | Button | Does |
 |---|---|
@@ -107,7 +108,7 @@ If you don't respond, it buzzes once more after about 30 seconds. A task or rout
 A routine shows one step at a time, with a bar along the top for how far through you are and the next step at the bottom.
 
 - **Do it** step: Select when done.
-- **Timer** step: counts down and shows when it ends. Select pauses and resumes. At zero it buzzes and moves on.
+- **Timer** step: shows its full time and waits until you're ready. Select starts the countdown, Select again stops it, and again carries on. At zero it buzzes, beeps three times and moves to the next step. Up within 5 seconds goes back to it.
 - **Number** step: Up and Down change the value (hold to go faster), Select saves. It starts at your last value.
 - **Back skips** the current step.
 - **Hold Select**: Leave, resume later; Finish routine now; Skip routine today.
@@ -133,7 +134,7 @@ Early warnings arrive at 09:00 (change it under "Event reminders at") and read l
 
 <img src="screenshots/guide/today.png" width="200" alt="The Today list">
 
-Select on home opens Today: everything due today in time order, then your anytime tasks, then **Voice notes** and **Settings** at the bottom. Select on an item for Start, Done, Skip today, Later, and for tasks, **Focus on this**.
+Select on home opens Today: everything due today in time order, then your anytime tasks, then any notes you turned into to-dos, then **Voice notes** and **Settings** at the bottom. Select on an item for Start, Done, Skip today, Later, and for tasks, **Focus on this**.
 
 ## Focus
 
@@ -141,7 +142,7 @@ Select on home opens Today: everything due today in time order, then your anytim
 
 Up on home opens Focus. The setup screen shows the focus length and the break. Up and Down change the focus length; tap the left or right half of a row to shorten or lengthen it. Select starts.
 
-While it runs, Select pauses, Down skips to the next phase, and hold Select gives +5 min, Stop, and Lengths. The default is 25 minutes of focus and 5 minutes of break, four times, with a long break of 15 minutes. Each change of phase buzzes, even if you've left the app.
+While it runs, Select pauses, Down skips to the next phase, and **Up resets** the current phase to its full length, stopped until you press Select. Hold Select gives +5 min, Stop, and Lengths. The default is 25 minutes of focus and 5 minutes of break, four times, with a long break of 15 minutes. Each change of phase buzzes, even if you've left the app.
 
 Start Focus from a task with **Focus on this** and the session carries the task's name; when you stop, it asks whether to mark the task done.
 
@@ -155,13 +156,16 @@ If the phone is out of reach, the watch still saves a "missed note" with the tim
 
 Find your notes in Today > Voice notes, newest first. Select opens one; Up and Down scroll. Hold Select to rename it (by speaking a new title) or delete it. All notes also appear in the planner's Notes tab, with export.
 
+**Turn a note into a to-do.** Hold Select on a note and pick **In 30 min**, **In 1 hour**, **Tomorrow**, **Pick day and time** or **Add to Today**. Each quick choice shows the time it will remind you. Tomorrow uses the planner's "Event reminders at" time, 09:00 unless you changed it (before 5 a.m. it means this morning). **Pick day and time** sets any moment up to a year ahead: Up and Down change the day, then Select moves to the hour and the minutes (5 at a time), and Select again saves. Under the day it says how far off that is, such as "in 4 days". Back steps back, or cancels from the day. The note's first words become a purple to-do in Today. One with a time buzzes then, like a task: Later puts it off by your "Later for tasks" time, Done clears it, and Skip keeps it in Today without reminding. In Today, Select on it to mark it done, give it a new time, or open the note. You can have six at once. They live on the watch only, so the planner doesn't show them.
+
 ## Alarms
 
 <img src="screenshots/guide/alarms.png" width="200" alt="The alarm list"> <img src="screenshots/guide/alarm.png" width="200" alt="The alarm editor">
 
-ADHD Coach has its own alarms, so you never need to leave it. Hold Select on home, then **Alarms**.
+ADHD Coach has its own alarms, so you never need to leave it. Hold Select on home, then **Alarms**. The time now is at the top of the list.
 
-- **New alarm** starts at 07:00, every day, with sound.
+- **New alarm** offers **In 5 min**, **In 10 min**, **In 15 min**, **In 30 min** and **In 1 hour**, each with the time it will ring. These ring once, to the second, with sound, and disappear once you stop them.
+- **Custom** opens the editor, starting at 07:00, every day, with sound. The time now shows at the top right.
 - The editor goes through hour, minutes, days and sound in turn. Up and Down change the underlined part; Select moves on and saves after the last one; Back steps back. You can also tap a part to pick it.
 - Days: once, every day, weekdays, weekends, or one day of the week.
 - Sound: **Sound + vibrate** or **Vibrate only**.
@@ -185,7 +189,7 @@ The watch's own **Quiet Time** silences reminders and nudges. Events and critica
 
 ## Ideas for using it
 
-**A morning routine that doesn't stall.** Make a routine for weekdays at 07:15: "Meds and water" (do it), "Shower" (timer, 8 min), "Get dressed" (do it), "Keys, wallet, phone" (do it). One step on screen at a time means no list to scan and lose your place in, and the timer keeps the shower from eating the morning.
+**A morning routine that doesn't stall.** Make a routine for weekdays at 07:15: "Meds and water" (do it), "Dead hang" (timer, 1 min), "Shower" (timer, 8 min), "Get dressed" (do it), "Keys, wallet, phone" (do it). One step on screen at a time means no list to scan and lose your place in. Each timer waits until you're on the bar or in the shower, then beeps when time's up.
 
 **Medication you can't forget.** A task at 08:00 every day, set to Critical, with "fine to start late by" 30 minutes. It buzzes hard, and if you hit Later it comes back.
 
@@ -197,6 +201,10 @@ The watch's own **Quiet Time** silences reminders and nudges. Events and critica
 
 **The 2 a.m. brain dump.** Set Quick Launch to Hold Down. In bed, hold Down, say the thought, let go of it. The watch saves it without lighting up much or asking anything. Read your notes over breakfast in the planner.
 
+**A thought that needs doing.** Halfway through something else you remember the bank. Press Down and say "Call the bank about the card". Then open the note, hold Select, and pick **In 1 hour**. Now it's a to-do with a buzz attached.
+
 **Seeing time pass.** Leave home on screen as your clock. "In 18 min" next to the next item makes time something you can see, not guess.
 
 **Waking up.** A weekday alarm at 07:00 with sound, and a vibrate-only alarm at 09:00 on weekends so you don't wake the house.
+
+**Leaving on time.** About to lose track before an appointment? New alarm, **In 30 min**, and get on with something else.

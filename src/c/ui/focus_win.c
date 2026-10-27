@@ -45,13 +45,7 @@ static void menu_perform(ActionMenu *menu, const ActionMenuItem *action, void *c
 static void open_menu(ActionMenuLevel *level, ActionMenuDidCloseCb closed) {
   s_menu_open = true;
   s_menu_choice = -1;
-  ActionMenuConfig cfg = {
-    .root_level = level,
-    .colors = { .background = poster_kind_color(POSTER_FOCUS), .foreground = GColorBlack },
-    .align = ActionMenuAlignCenter,
-    .did_close = closed,
-  };
-  action_menu_open(&cfg);
+  poster_open_menu(level, poster_kind_color(POSTER_FOCUS), closed);
 }
 
 static void prompt_closed(ActionMenu *menu, const ActionMenuItem *performed, void *ctx) {
@@ -132,16 +126,14 @@ static void draw(Layer *layer, GContext *ctx) {
   else if (g_focus.phase == CC_FOCUS_WORK) snprintf(head, sizeof(head), "Focus %d of %d", g_focus.cycle, g_focus.cycles);
   else snprintf(head, sizeof(head), "%s", g_focus.phase == CC_FOCUS_SHORT ? "Short break" : "Long break");
   graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, head, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(POSTER_TEXT_X, 2, POSTER_TEXT_W, 30),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  poster_text(ctx, head, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(POSTER_TEXT_X, 2, POSTER_TEXT_W, 30));
 
   if (!g_focus.active) {  // setup: the lengths this session will use
     draw_length(ctx, WORK_BOX, g_cfg.focus_work_min, FONT_KEY_BITHAM_42_BOLD, -6, "min", 40);
     draw_length(ctx, BREAK_BOX, g_cfg.focus_short_min, FONT_KEY_GOTHIC_28_BOLD, -2, "min break", 28);
     if (g_cfg.focus_cycles == 1) snprintf(line, sizeof(line), "1 round");
     else snprintf(line, sizeof(line), "%d rounds", g_cfg.focus_cycles);
-    graphics_draw_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 194, POSTER_TEXT_W, 24),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 194, POSTER_TEXT_W, 24));
   } else {
     int32_t left = cc_focus_remaining(&g_focus, now);
     snprintf(t, sizeof(t), "%d:%02d", (int)(left / 60), (int)(left % 60));
@@ -153,13 +145,12 @@ static void draw(Layer *layer, GContext *ctx) {
       poster_fmt_time(cc_min_of(g_focus.phase_end), t, sizeof(t));
       snprintf(line, sizeof(line), "ends %s", t);
     }
-    graphics_draw_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 132, POSTER_TEXT_W, 24),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 132, POSTER_TEXT_W, 24));
   }
 
   RailAction rail[3] = { { G_PLUS, NULL }, { G_START, "start" }, { G_MINUS, NULL } };
   if (g_focus.active) {
-    rail[0] = (RailAction){ G_NONE, NULL };
+    rail[0] = (RailAction){ G_UNDO, "reset" };
     rail[1] = (RailAction){ g_focus.paused ? G_RESUME : G_PAUSE, NULL };
     rail[2] = (RailAction){ G_SKIP, "next" };
   }
@@ -174,7 +165,12 @@ static void on_select(ClickRecognizerRef r, void *ctx) {
   refresh();
 }
 
-static void on_up(ClickRecognizerRef r, void *ctx) { adjust(CC_TAP_WORK_MORE); }
+static void on_up(ClickRecognizerRef r, void *ctx) {
+  if (!g_focus.active) { adjust(CC_TAP_WORK_MORE); return; }
+  cc_focus_reset(&g_focus);  // this phase from the top; Select starts it
+  save();
+  refresh();
+}
 
 static void on_down(ClickRecognizerRef r, void *ctx) {  // no buzz on a button press
   if (!g_focus.active) { adjust(CC_TAP_WORK_LESS); return; }

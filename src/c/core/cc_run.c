@@ -3,10 +3,11 @@
 #include <string.h>
 
 static void enter(CcRun *r, const CcStep steps[], uint8_t i, cc_sec now) {
+  bool timed = steps[i].type == CC_STEP_TIMED;
   r->step = i;
-  r->paused = 0;
-  r->paused_left = 0;
-  r->step_end = steps[i].type == CC_STEP_TIMED ? now + steps[i].dur_s : CC_NEVER;
+  r->paused = timed ? CC_RUN_READY : 0;  // the clock starts on Select, once you're ready
+  r->paused_left = timed ? steps[i].dur_s : 0;
+  r->step_end = timed ? now + steps[i].dur_s : CC_NEVER;
 }
 
 static CcRunEvent advance(CcRun *r, const CcStep steps[], cc_sec now) {
@@ -61,6 +62,8 @@ void cc_run_toggle_pause(CcRun *r, cc_sec now) {
     r->paused_left = timed && r->step_end > now ? r->step_end - now : 0;
   }
 }
+
+bool cc_run_waiting(const CcRun *r) { return r->active && r->paused == CC_RUN_READY; }
 
 int32_t cc_run_remaining(const CcRun *r, cc_sec now) {
   if (!r->active || r->step_end == CC_NEVER) return 0;

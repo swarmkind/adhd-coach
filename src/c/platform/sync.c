@@ -379,8 +379,8 @@ static void commit(Stage *st, uint32_t rev) {
   }
   cc_sec now = clock_now_local();
   coach_ensure_today(now);
-  cc_day_prune(&g_day, g_items, g_nitems);
-  cc_sweep(&g_day, g_items, g_nitems, now, &g_cfg);
+  cc_day_prune(g_day, g_items, g_nitems);
+  cc_sweep(g_day, g_items, g_nitems, now, &g_cfg);
   store_save_day();
   s_sync.rev = rev;
   store_save_sync(&s_sync);

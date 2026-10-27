@@ -14,10 +14,13 @@ int main(void) {
   RUN(test_event);
   RUN(test_focus);
   RUN(test_focus_setup);
+  RUN(test_focus_reset);
   RUN(test_touch);
   RUN(test_alarm);
   RUN(test_note);
   RUN(test_sync);
+  RUN(test_battery);
+  RUN(test_todo);
   printf("%d passed, %d failed\n", t_pass, t_fail);
   return t_fail ? 1 : 0;
 }

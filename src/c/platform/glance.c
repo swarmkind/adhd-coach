@@ -27,7 +27,7 @@ static void reload(AppGlanceReloadSession *session, size_t limit, void *ctx) {
   cc_sec now = clock_now_local();
   int32_t tz = clock_tz_offset();
   CcFire f[FIRES_MAX];
-  int n = cc_collect(g_items, g_nitems, &g_day, CC_NEVER, CC_NEVER, now, &g_cfg, f, FIRES_MAX);
+  int n = cc_collect(g_items, g_nitems, g_day, CC_NEVER, CC_NEVER, now, &g_cfg, f, FIRES_MAX);
   size_t added = 0;
   for (int i = 0; i < n && added < limit && added < SLICES; i++) {
     const CcItem *it = f[i].kind == CC_FIRE_DUE ? coach_item(f[i].id) : NULL;

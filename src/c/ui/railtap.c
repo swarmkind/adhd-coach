@@ -2,13 +2,13 @@
 #include "poster.h"
 #include "../core/cc_touch.h"
 
-#define MAX_WINDOWS 8
+#define MAX_WINDOWS 12  // every window that registers, with room to spare
 #define HOLD_MS 500
 #define RAIL_X (PBL_DISPLAY_WIDTH - POSTER_RAIL_W - 6)  // a little slack for a fingertip
 #define SPLIT_UP ((POSTER_Y_UP + POSTER_Y_SELECT) / 2)
 #define SPLIT_DOWN ((POSTER_Y_SELECT + POSTER_Y_DOWN) / 2)
 
-static struct { Window *w; RailTaps taps; } s_reg[MAX_WINDOWS];
+static struct { Window *w; RailTaps taps; } *s_reg;  // [MAX_WINDOWS] on the heap from the first one
 static int s_n;
 static CcTapTrack s_track;
 static AppTimer *s_hold;
@@ -22,7 +22,8 @@ static const RailTaps *taps_for(Window *w) {
 }
 
 void railtap_register(Window *w, const RailTaps *taps, bool keep_bridge) {
-  if (!taps_for(w) && s_n < MAX_WINDOWS) {
+  if (!s_reg) s_reg = calloc(MAX_WINDOWS, sizeof(*s_reg));
+  if (s_reg && !taps_for(w) && s_n < MAX_WINDOWS) {
     s_reg[s_n].w = w;
     s_reg[s_n].taps = *taps;
     s_n++;

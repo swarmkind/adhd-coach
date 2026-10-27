@@ -27,7 +27,7 @@ It is a personal organiser, not a medical device or a treatment.
 - **Tasks**: at a set time on chosen days, or "anytime" in a do-next list.
 - **Events**: one-off appointments with a ladder of early warnings (a week before, the day before, the morning of, an hour before).
 - **Focus**: a Pomodoro-style timer (25 minutes on, 5 off by default) that can be tied to a task.
-- **Voice notes**: speak a thought and it's saved as text. Hold a button on the watch face to start one straight away.
+- **Voice notes**: speak a thought and it's saved as text. Hold a button on the watch face to start one straight away. Turn one into a to-do with a reminder.
 - **Alarms**: up to six, with sound or vibration only, snooze and stop.
 - **Today**: everything for today in time order, plus your anytime tasks.
 - **Your clock**: the home screen is built to stay up all day as the watch's main screen.

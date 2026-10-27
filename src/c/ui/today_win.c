@@ -5,10 +5,13 @@
 #include "settings_win.h"
 #include "focus_win.h"
 #include "voice_win.h"
+#include "home_win.h"
+#include "when_win.h"
 #include "../platform/notes.h"
 #include "../coach.h"
 #include "../platform/store.h"
 #include "../platform/clock.h"
+#include "../platform/wake.h"
 #include "../core/cc_time.h"
 #include "../core/cc_event.h"
 #include "../core/cc_sched.h"
@@ -19,12 +22,17 @@
 
 static Window *s_win;
 static MenuLayer *s_menu;
-static int s_rows[CC_MAX_ITEMS];  // slots, in display order
+static uint8_t s_rows[CC_MAX_ITEMS];  // slots, in display order
 static int s_nrows;
 static uint16_t s_menu_item;      // item the open ActionMenu acts on
 static uint16_t s_number_item;    // reminder waiting on number entry
 static uint16_t s_focus_item;     // task chosen for "Focus on this"
 static int s_nnotes;              // for the voice log row
+static int s_ntodos;              // note to-dos, after the items
+static uint16_t s_menu_todo;      // to-do the open ActionMenu acts on
+static uint32_t s_open_note;      // note chosen for "Open note"
+static cc_sec s_todo_now;         // the to-do menu's times are from when it opened
+static bool s_pick;               // "Pick day and time" chosen: the picker opens once the menu has closed
 
 // Marquee for the highlighted row (same timing as FitText).
 static AppTimer *s_marq_timer;
@@ -32,6 +40,7 @@ static int s_marq_ms, s_marq_loops, s_marq_offset, s_marq_w;
 static bool s_marq_on;
 
 enum { A_START, A_DONE, A_SKIP, A_LATER, A_RESUME, A_FOCUS };
+enum { T_DONE, T_AT, T_NONE = T_AT + VOICE_TODO_TIMES, T_OPEN, T_PICK };
 
 // An event shows on its own day and on each day it has a rung.
 static bool today_has(const CcItem *it, int32_t day) {
@@ -52,6 +61,7 @@ static void build_rows(void) {
   int32_t day = cc_day_of(clock_now_local());
   s_nrows = 0;
   s_nnotes = notes_count();
+  s_ntodos = g_todos->n;
   for (int i = 0; i < g_nitems; i++) {
     const CcItem *it = &g_items[i];
     if (!today_has(it, day)) continue;
@@ -68,7 +78,7 @@ static void build_rows(void) {
 
 static void sub_line(const CcItem *it, char *buf, int len) {
   char t[12], u[12];
-  CcItemState *st = cc_state_for(&g_day, it->id);
+  CcItemState *st = cc_state_for(g_day, it->id);
   int status = st ? st->status : CC_ST_NONE;
   if (it->flags & CC_F_ANYTIME) snprintf(t, sizeof(t), "anytime");
   else poster_fmt_time(it->at_min, t, sizeof(t));
@@ -110,6 +120,30 @@ static void sub_line(const CcItem *it, char *buf, int len) {
   }
 }
 
+// "note", "note · 15:30", "note · tomorrow 09:00", "note · Sat 09:00", "note · Sat 14 Nov 09:00"
+static void todo_sub(const CcTodo *t, char *buf, int len) {
+  if (!t->at) { snprintf(buf, len, "note"); return; }
+  char u[12];
+  poster_fmt_time(cc_min_of(t->at), u, sizeof(u));
+  int days = (int)(cc_day_of(t->at) - cc_day_of(clock_now_local()));
+  if (days <= 0) snprintf(buf, len, "note · %s", u);
+  else if (days == 1) snprintf(buf, len, "note · tomorrow %s", u);
+  else if (days < 7) snprintf(buf, len, "note · %s %s", poster_wday(cc_day_of(t->at)), u);
+  else {
+    char d[16];
+    poster_fmt_date(cc_day_of(t->at), d, sizeof(d));
+    snprintf(buf, len, "note · %s %s", d, u);
+  }
+}
+
+static bool is_todo_row(int row) { return row >= s_nrows && row < s_nrows + s_ntodos; }
+
+static const char *row_name(int row) {
+  if (row < s_nrows) return g_items[s_rows[row]].name;
+  if (is_todo_row(row)) return g_todos->t[row - s_nrows].name;
+  return NULL;
+}
+
 static void marq_stop(void) {
   if (s_marq_timer) { app_timer_cancel(s_marq_timer); s_marq_timer = NULL; }
 }
@@ -136,10 +170,8 @@ static void marq_restart(void) {
   marq_stop();
   s_marq_on = false;
   s_marq_ms = s_marq_loops = s_marq_offset = 0;
-  if (!s_nrows) return;
-  int row = menu_layer_get_selected_index(s_menu).row;
-  if (row >= s_nrows) return;
-  const char *name = g_items[s_rows[row]].name;
+  const char *name = row_name(menu_layer_get_selected_index(s_menu).row);
+  if (!name) return;
   GFont f = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
   s_marq_w = graphics_text_layout_get_content_size(name, f, GRect(0, 0, 2000, 40), GTextOverflowModeWordWrap,
                                                    GTextAlignmentLeft).w;
@@ -150,71 +182,47 @@ static void marq_restart(void) {
   }
 }
 
-// The item rows (or "Nothing today"), then the voice log, then Settings.
-static int voice_row(void) { return s_nrows ? s_nrows : 1; }
+// The item rows, the note to-dos (or "Nothing today"), then the voice log, then Settings.
+static int voice_row(void) { return s_nrows + s_ntodos ? s_nrows + s_ntodos : 1; }
 static int settings_row(void) { return voice_row() + 1; }
 static uint16_t num_rows(MenuLayer *m, uint16_t section, void *ctx) { return (uint16_t)(settings_row() + 1); }
 static int16_t row_h(MenuLayer *m, MenuIndex *i, void *ctx) { return ROW_H; }
 
 static void draw_row(GContext *ctx, const Layer *cell, MenuIndex *idx, void *data) {
-  GRect b = layer_get_bounds(cell);
-  bool hl = menu_cell_layer_is_highlighted(cell);
-  GFont name_f = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
-  GFont sub_f = fonts_get_system_font(FONT_KEY_GOTHIC_18);
+  char sub[64];
   if (idx->row == voice_row()) {
-    GColor accent = poster_kind_color(POSTER_VOICE);
-    graphics_context_set_fill_color(ctx, hl ? accent : GColorBlack);
-    graphics_fill_rect(ctx, b, 0, GCornerNone);
-    if (!hl) {
-      graphics_context_set_fill_color(ctx, accent);
-      graphics_fill_rect(ctx, GRect(0, 6, 4, b.size.h - 12), 0, GCornerNone);
-    }
-    char sub[24];
     if (s_nnotes) snprintf(sub, sizeof(sub), s_nnotes == 1 ? "1 note" : "%d notes", s_nnotes);
     else snprintf(sub, sizeof(sub), "none yet");
-    int w = b.size.w - 2 * TEXT_X;
-    graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorWhite);
-    graphics_draw_text(ctx, "Voice notes", name_f, GRect(TEXT_X, 0, w, 30), GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentLeft, NULL);
-    graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorLightGray);
-    graphics_draw_text(ctx, sub, sub_f, GRect(TEXT_X, 27, w, 22), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_draw_row(ctx, cell, poster_kind_color(POSTER_VOICE), true, "Voice notes", sub);
     return;
   }
   if (idx->row == settings_row()) {
-    GColor accent = poster_kind_color(POSTER_NOTHING);
-    graphics_context_set_fill_color(ctx, hl ? accent : GColorBlack);
-    graphics_fill_rect(ctx, b, 0, GCornerNone);
-    graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorWhite);
-    graphics_draw_text(ctx, "Settings", name_f, GRect(TEXT_X, 10, b.size.w - 2 * TEXT_X, 30),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_draw_row(ctx, cell, poster_kind_color(POSTER_NOTHING), false, "Settings", NULL);
     return;
   }
-  if (!s_nrows) {
+  GFont name_f = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+  if (!s_nrows && !s_ntodos) {
     graphics_context_set_text_color(ctx, GColorWhite);
-    graphics_draw_text(ctx, "Nothing today", name_f, GRect(TEXT_X, 8, b.size.w - 2 * TEXT_X, 30),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, "Nothing today", name_f, GRect(TEXT_X, 8, layer_get_bounds(cell).size.w - 2 * TEXT_X, 30));
     return;
   }
-  const CcItem *it = &g_items[s_rows[idx->row]];
-  graphics_context_set_fill_color(ctx, hl ? poster_kind_color(it->kind) : GColorBlack);
-  graphics_fill_rect(ctx, b, 0, GCornerNone);
-  if (!hl) {  // a strip of the kind colour marks each row
-    graphics_context_set_fill_color(ctx, poster_kind_color(it->kind));
-    graphics_fill_rect(ctx, GRect(0, 6, 4, b.size.h - 12), 0, GCornerNone);
-  }
-  int w = b.size.w - 2 * TEXT_X;
-  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorWhite);
-  if (hl && s_marq_on) {
-    graphics_draw_text(ctx, it->name, name_f, GRect(TEXT_X - s_marq_offset, 0, s_marq_w + 12, 30),
-                       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+  const char *name = row_name(idx->row);
+  GColor color;
+  if (is_todo_row(idx->row)) {
+    todo_sub(&g_todos->t[idx->row - s_nrows], sub, sizeof(sub));
+    color = poster_kind_color(POSTER_VOICE);
   } else {
-    graphics_draw_text(ctx, it->name, name_f, GRect(TEXT_X, 0, w, 30), GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentLeft, NULL);
+    const CcItem *it = &g_items[s_rows[idx->row]];
+    sub_line(it, sub, sizeof(sub));
+    color = poster_kind_color(it->kind);
   }
-  char sub[64];
-  sub_line(it, sub, sizeof(sub));
-  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorLightGray);
-  graphics_draw_text(ctx, sub, sub_f, GRect(TEXT_X, 27, w, 22), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  bool marq = s_marq_on && menu_cell_layer_is_highlighted(cell);  // the selected name scrolls
+  poster_draw_row(ctx, cell, color, true, marq ? NULL : name, sub);  // a strip of the kind colour marks each row
+  if (marq) {
+    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_draw_text(ctx, name, name_f, GRect(TEXT_X - s_marq_offset, 0, s_marq_w + 12, 30),
+                       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+  }
 }
 
 static void number_done(bool saved, int32_t value) {
@@ -243,19 +251,70 @@ static void menu_perform(ActionMenu *menu, const ActionMenuItem *action, void *c
   }
 }
 
+static void todo_saved(void) {
+  store_save_todos();
+  wake_rearm();
+  ui_refresh_all();
+}
+
+static void todo_picked(cc_sec at) {
+  CcTodo *t = cc_todo_find(g_todos, s_menu_todo);
+  if (!t) return;
+  cc_todo_remind(t, at);
+  todo_saved();
+}
+
+static void todo_perform(ActionMenu *menu, const ActionMenuItem *action, void *ctx) {
+  CcTodo *t = cc_todo_find(g_todos, s_menu_todo);
+  if (!t) return;
+  int a = (int)action_menu_item_get_action_data(action);
+  if (a == T_OPEN) { s_open_note = t->note; return; }  // opened once the menu has closed
+  if (a == T_PICK) { s_pick = true; return; }
+  if (a == T_DONE) cc_todo_answer(g_todos, t->id, CC_A_DONE, 0, 0);
+  else cc_todo_remind(t, a == T_NONE ? 0 : voice_todo_at(a - T_AT, s_todo_now));
+  todo_saved();
+}
+
 static void menu_closed(ActionMenu *menu, const ActionMenuItem *performed, void *ctx) {
   action_menu_hierarchy_destroy(action_menu_get_root_level(menu), NULL, NULL);
   if (s_focus_item) focus_win_open(s_focus_item);
+  if (s_open_note) voice_note_open(s_open_note);
+  const CcTodo *t = s_pick ? cc_todo_find(g_todos, s_menu_todo) : NULL;
+  if (t) when_win_open(voice_todo_pick_start(t->at, s_todo_now), todo_picked);
   s_focus_item = 0;
+  s_open_note = 0;
+  s_pick = false;
+}
+
+static bool note_exists(uint32_t id) {
+  CcNote n;
+  char *text = malloc(CC_NOTE_TEXT_MAX + 1);
+  bool ok = text && notes_read(id, &n, text);
+  free(text);
+  return ok;
+}
+
+static void todo_menu(const CcTodo *t) {
+  s_menu_todo = t->id;
+  s_todo_now = clock_now_local();
+  ActionMenuLevel *level = action_menu_level_create(7);
+  action_menu_level_add_action(level, "Done", todo_perform, (void *)T_DONE);
+  for (int i = 0; i < VOICE_TODO_TIMES; i++)
+    action_menu_level_add_action(level, voice_todo_label(i, s_todo_now), todo_perform, (void *)(T_AT + i));
+  action_menu_level_add_action(level, "Pick day and time", todo_perform, (void *)T_PICK);
+  if (t->at) action_menu_level_add_action(level, "No reminder", todo_perform, (void *)T_NONE);
+  if (note_exists(t->note)) action_menu_level_add_action(level, "Open note", todo_perform, (void *)T_OPEN);
+  poster_open_menu(level, poster_kind_color(POSTER_VOICE), menu_closed);
 }
 
 static void select_click(MenuLayer *m, MenuIndex *idx, void *ctx) {
   if (idx->row == settings_row()) { settings_win_open(0); return; }
   if (idx->row == voice_row()) { voice_log_open(); return; }
-  if (!s_nrows) return;
+  if (is_todo_row(idx->row)) { todo_menu(&g_todos->t[idx->row - s_nrows]); return; }
+  if (idx->row >= s_nrows) return;
   const CcItem *it = &g_items[s_rows[idx->row]];
   s_menu_item = it->id;
-  const CcItemState *st = cc_state_for(&g_day, it->id);
+  const CcItemState *st = cc_state_for(g_day, it->id);
   ActionMenuLevel *level = action_menu_level_create(6);
   if (st && st->status == CC_ST_PAUSED) action_menu_level_add_action(level, "Resume", menu_perform, (void *)A_RESUME);
   bool ev = it->kind == CC_EVENT;
@@ -264,13 +323,7 @@ static void select_click(MenuLayer *m, MenuIndex *idx, void *ctx) {
   action_menu_level_add_action(level, "Skip today", menu_perform, (void *)A_SKIP);
   action_menu_level_add_action(level, "Later", menu_perform, (void *)A_LATER);
   if (it->kind == CC_TASK) action_menu_level_add_action(level, "Focus on this", menu_perform, (void *)A_FOCUS);
-  ActionMenuConfig cfg = {
-    .root_level = level,
-    .colors = { .background = poster_kind_color(it->kind), .foreground = GColorBlack },
-    .align = ActionMenuAlignCenter,
-    .did_close = menu_closed,
-  };
-  action_menu_open(&cfg);
+  poster_open_menu(level, poster_kind_color(it->kind), menu_closed);
 }
 
 static void selection_changed(MenuLayer *m, MenuIndex new_idx, MenuIndex old_idx, void *ctx) { marq_restart(); }

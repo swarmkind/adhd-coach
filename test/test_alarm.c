@@ -120,6 +120,33 @@ void test_alarm(void) {
   T_TRUE(!cc_alarms_read(&back, (const uint8_t *)&saved, 50));  // neither size
   T_EQ(back.n, 0);
 
+  // "In N min": rings once, at exactly now + N min, and is gone once stopped.
+  CcAlarms in = { 0 };
+  in.n = 2;
+  cc_alarm_set(&in.a[0], 480, EVERY_DAY, six);
+  in.a[1].mode = CC_ALARM_VIBRATE;
+  cc_sec now = six + 25;  // 06:00:25
+  cc_alarm_set_in(&in.a[1], 5, now);
+  T_TRUE(in.a[1].on); T_EQ(in.a[1].at_min, 365); T_EQ(in.a[1].mode, CC_ALARM_VIBRATE);
+  T_STR(cc_days_name(in.a[1].days), "Once");
+  T_EQ(cc_alarm_next(&in.a[1], now), now + 300);
+  T_EQ(cc_alarm_next(&in.a[1], now + 300 + CC_ALARM_LATE + 1), CC_NEVER);  // missed long ago: not again tomorrow
+  cc_alarm_snooze(&in.a[1], now + 300);
+  T_EQ(cc_alarm_next(&in.a[1], now + 301), now + 900);
+  cc_alarms_stop(&in, 1, now + 905);
+  T_EQ(in.n, 1); T_EQ(in.a[0].at_min, 480);  // gone; the others stay
+  cc_alarms_stop(&in, 0, cc_at(mon, 480) + 5);  // an ordinary alarm stays, on
+  T_EQ(in.n, 1); T_TRUE(in.a[0].on);
+  cc_alarms_stop(&in, 3, now);  // out of range: nothing
+  T_EQ(in.n, 1);
+  // Turned off, then on again from the list: a plain once alarm at its time.
+  cc_alarm_set_in(&in.a[0], 60, now);
+  in.a[0].on = 0; in.a[0].snooze = 0;
+  cc_alarm_set(&in.a[0], in.a[0].at_min, in.a[0].days, now + 10);
+  T_EQ(in.a[0].days, 0); T_EQ(cc_alarm_next(&in.a[0], now + 10), cc_at(mon, 420));
+  cc_alarms_stop(&in, 0, cc_at(mon, 421));
+  T_EQ(in.n, 1); T_TRUE(!in.a[0].on);
+
   // The editor's day choices, in order, and their names.
   T_EQ(cc_days_preset(0), 0);
   T_EQ(cc_days_preset(1), EVERY_DAY);

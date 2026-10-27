@@ -7,6 +7,7 @@
 #define CC_ALARM_MAX 6
 #define CC_ALARM_LATE (30 * 60)  // a ring missed with the watch off still sounds this late
 #define CC_ALARM_SNOOZE_MIN 10
+#define CC_ALARM_IN 0x80  // a days bit no weekday uses: an "in N min" alarm, gone once stopped
 
 typedef enum { CC_ALARM_SOUND, CC_ALARM_VIBRATE } CcAlarmMode;  // sound and vibration, or vibration only
 
@@ -23,6 +24,8 @@ typedef struct { uint8_t n; CcAlarm a[CC_ALARM_MAX]; } CcAlarms;
 cc_sec cc_alarm_next(const CcAlarm *a, cc_sec now);  // CC_NEVER when off
 void cc_alarm_set(CcAlarm *a, uint16_t at_min, uint8_t days, cc_sec now);  // on, counting from now; keeps the mode
 void cc_alarm_stop(CcAlarm *a, cc_sec now);    // a once alarm turns off
+void cc_alarm_set_in(CcAlarm *a, int minutes, cc_sec now);  // once, exactly `minutes` from now; keeps the mode
+void cc_alarms_stop(CcAlarms *l, int i, cc_sec now);        // stop; an "in N min" alarm is removed
 void cc_alarm_snooze(CcAlarm *a, cc_sec now);
 void cc_alarm_remove(CcAlarms *l, int i);
 

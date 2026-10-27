@@ -1,4 +1,5 @@
 #include "fittext.h"
+#include "poster.h"
 #include "../core/cc_codec.h"
 
 #define TICK_MS 40
@@ -85,12 +86,12 @@ static void update(Layer *layer, GContext *ctx) {
   graphics_context_set_text_color(ctx, f->fg);
   switch (f->mode) {
     case FIT_BIG:
-      graphics_draw_text(ctx, f->text, f->big, b, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      poster_text(ctx, f->text, f->big, b);
       break;
     case FIT_SMALL:
     case FIT_REST:
       b.size.h = (int16_t)(line_h(f->small) + 4);  // one line, so the ellipsis lands on it
-      graphics_draw_text(ctx, f->text, f->small, b, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      poster_text(ctx, f->text, f->small, b);
       break;
     case FIT_MARQUEE:
       graphics_draw_text(ctx, f->text, f->small, GRect(-f->offset, 0, f->text_w + END_PAD + 8, b.size.h),

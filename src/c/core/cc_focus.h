@@ -20,6 +20,7 @@ CcFocusEvent cc_focus_tick(CcFocus *f, cc_sec now);   // advances through every 
 CcFocusEvent cc_focus_skip(CcFocus *f, cc_sec now);   // next phase now
 void cc_focus_toggle_pause(CcFocus *f, cc_sec now);
 void cc_focus_add(CcFocus *f, int minutes, cc_sec now);
+void cc_focus_reset(CcFocus *f);                      // this phase back to full length, stopped
 int32_t cc_focus_remaining(const CcFocus *f, cc_sec now);  // seconds
 void cc_focus_stop(CcFocus *f);
 cc_sec cc_focus_end(const CcFocus *f);                // phase_end, or CC_NEVER if inactive/paused

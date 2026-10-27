@@ -24,7 +24,7 @@ static void finish(bool snooze) {
   if (s_index >= 0 && s_index < g_alarms.n) {
     CcAlarm *a = &g_alarms.a[s_index];
     if (snooze) cc_alarm_snooze(a, clock_now_local());
-    else cc_alarm_stop(a, clock_now_local());
+    else cc_alarms_stop(&g_alarms, s_index, clock_now_local());
     store_save_alarms();
   }
   APP_LOG(APP_LOG_LEVEL_INFO, "alarm %d: %s", s_index, snooze ? "snooze" : "stop");
@@ -63,12 +63,10 @@ static void draw(Layer *layer, GContext *ctx) {
   if (clock_is_24h_style()) snprintf(d, sizeof(d), "%s", cc_days_name(a->days));
   else snprintf(d, sizeof(d), "%s · %s", a->at_min < 720 ? "am" : "pm", cc_days_name(a->days));
   graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, "Alarm", fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(POSTER_TEXT_X, 6, POSTER_TEXT_W, 30),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  poster_text(ctx, "Alarm", fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(POSTER_TEXT_X, 6, POSTER_TEXT_W, 30));
   graphics_draw_text(ctx, t, fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS), GRect(POSTER_TEXT_X, 52, POSTER_TEXT_W, 48),
                      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, d, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(POSTER_TEXT_X, 102, POSTER_TEXT_W, 30),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  poster_text(ctx, d, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(POSTER_TEXT_X, 102, POSTER_TEXT_W, 30));
 }
 
 static void load(Window *w) {

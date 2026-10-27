@@ -27,21 +27,27 @@ void test_run(void) {
   T_EQ(cc_run_remaining(&r, t), 0);  // untimed
   T_EQ(cc_run_tick(&r, steps, t + 500), CC_RUN_NONE);  // manual steps never auto-advance
 
+  // A timed step waits for Start, showing its full length.
   T_EQ(cc_run_next(&r, steps, t), CC_RUN_NONE);
-  T_EQ(r.step, 1); T_EQ(r.step_end, t + 60);
-  T_EQ(cc_run_remaining(&r, t + 15), 45);
-  T_TRUE(!cc_run_undo(&r, steps, t + 1));  // nothing auto-advanced yet
+  T_EQ(r.step, 1); T_TRUE(cc_run_waiting(&r));
+  T_EQ(cc_run_remaining(&r, t + 15), 60);
+  T_EQ(cc_run_tick(&r, steps, t + 500), CC_RUN_NONE);  // no clock until Start
+  cc_run_toggle_pause(&r, t + 10);  // Start
+  T_TRUE(!cc_run_waiting(&r)); T_EQ(r.paused, 0); T_EQ(r.step_end, t + 70);
+  T_EQ(cc_run_remaining(&r, t + 25), 45);
+  T_TRUE(!cc_run_undo(&r, steps, t + 11));  // nothing auto-advanced yet
 
-  T_EQ(cc_run_tick(&r, steps, t + 59), CC_RUN_NONE);
-  T_EQ(cc_run_tick(&r, steps, t + 60), CC_RUN_TIME_UP);
-  T_EQ(r.step, 2); T_EQ(r.advanced_at, t + 60);
-  T_EQ(cc_run_tick(&r, steps, t + 61), CC_RUN_NONE);
+  T_EQ(cc_run_tick(&r, steps, t + 69), CC_RUN_NONE);
+  T_EQ(cc_run_tick(&r, steps, t + 70), CC_RUN_TIME_UP);
+  T_EQ(r.step, 2); T_EQ(r.advanced_at, t + 70);
+  T_EQ(cc_run_tick(&r, steps, t + 71), CC_RUN_NONE);
 
-  T_TRUE(cc_run_undo(&r, steps, t + 64));
-  T_EQ(r.step, 1); T_EQ(r.step_end, t + 124);
-  T_TRUE(!cc_run_undo(&r, steps, t + 65));  // one undo per advance
-  T_EQ(cc_run_tick(&r, steps, t + 124), CC_RUN_TIME_UP);
-  T_TRUE(!cc_run_undo(&r, steps, t + 130));  // more than 5 s later
+  T_TRUE(cc_run_undo(&r, steps, t + 74));  // back to the timed step, full length, waiting again
+  T_EQ(r.step, 1); T_TRUE(cc_run_waiting(&r)); T_EQ(cc_run_remaining(&r, t + 90), 60);
+  T_TRUE(!cc_run_undo(&r, steps, t + 75));  // one undo per advance
+  cc_run_toggle_pause(&r, t + 80);
+  T_EQ(cc_run_tick(&r, steps, t + 140), CC_RUN_TIME_UP);
+  T_TRUE(!cc_run_undo(&r, steps, t + 146));  // more than 5 s later
   T_EQ(r.step, 2);
 
   T_EQ(cc_run_next(&r, steps, t + 140), CC_RUN_FINISHED);
@@ -52,8 +58,10 @@ void test_run(void) {
   cc_run_start(&r, &R, steps, t);
   cc_sec s = t + 1000;
   cc_run_next(&r, steps, s);
-  cc_run_toggle_pause(&r, s + 20);
+  cc_run_toggle_pause(&r, s);       // Start
+  cc_run_toggle_pause(&r, s + 20);  // Stop
   T_EQ(r.paused, 1); T_EQ(r.paused_left, 40);
+  T_TRUE(!cc_run_waiting(&r));      // stopped part way, not waiting to start
   T_EQ(cc_run_remaining(&r, s + 50), 40);
   T_EQ(cc_run_tick(&r, steps, s + 70), CC_RUN_NONE);  // the clock is stopped
   cc_run_toggle_pause(&r, s + 100);
@@ -64,14 +72,16 @@ void test_run(void) {
   R.step_count = 2;
   cc_run_start(&r, &R, two, t);
   cc_run_next(&r, two, t);
+  cc_run_toggle_pause(&r, t);
   T_EQ(cc_run_tick(&r, two, t + 120), CC_RUN_FINISHED);
   T_EQ(r.active, 0);
 
-  // a routine whose first step is timed starts its clock at once
+  // a routine whose first step is timed waits for Start too
   CcStep first[1] = { step(CC_STEP_TIMED, "Plank", 60) };
   R.step_count = 1;
   cc_run_start(&r, &R, first, t);
-  T_EQ(r.step_end, t + 60);
+  T_TRUE(cc_run_waiting(&r));
+  T_EQ(cc_run_tick(&r, first, t + 60), CC_RUN_NONE);
 
   T_TRUE(cc_run_counts_for_today(&r, D));
   T_TRUE(!cc_run_counts_for_today(&r, D + 1));  // run started on D, today D+1

@@ -45,7 +45,7 @@ static void prv_init(void) {
   s_tz = clock_tz_offset();
   cc_sec now = clock_now_local();
   coach_ensure_today(now);
-  if (cc_sweep(&g_day, g_items, g_nitems, now, &g_cfg)) store_save_day();
+  if (cc_sweep(g_day, g_items, g_nitems, now, &g_cfg)) store_save_day();
   bool by_wakeup = launch_reason() == APP_LAUNCH_WAKEUP;
   APP_LOG(APP_LOG_LEVEL_INFO, "launch reason %d", (int)launch_reason());
   if (!by_wakeup) home_win_open();

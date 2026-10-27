@@ -31,13 +31,25 @@ static char s_meta[40];
 static bool s_menu_open;
 static int s_menu_action;  // -1 = none chosen
 
-static const CcItem *item_for(uint16_t id) {
+static CcItem s_note;  // a note to-do, dressed as a task
+
+static const CcItem *item_for(const CcFire *f) {
+  if (f->kind == CC_FIRE_NOTE) {
+    CcTodo *t = cc_todo_find(g_todos, f->id);
+    if (!t) return NULL;
+    memset(&s_note, 0, sizeof(s_note));
+    s_note.kind = POSTER_VOICE;
+    s_note.priority = CC_NORMAL;
+    strcpy(s_note.name, t->name);
+    return &s_note;
+  }
   for (int i = 0; i < g_nitems; i++)
-    if (g_items[i].id == id) return &g_items[i];
+    if (g_items[i].id == f->id) return &g_items[i];
   return NULL;
 }
 
 static bool is_headsup(void) { return s_fire.kind == CC_FIRE_HEADSUP; }
+static bool is_note(void) { return s_fire.kind == CC_FIRE_NOTE; }
 static bool is_reminder(void) { return s_item->kind == CC_REMINDER; }
 static bool is_event(void) { return s_item->kind == CC_EVENT; }
 static bool has_steps(void) { return s_item->kind == CC_ROUTINE && s_item->step_count > 0; }
@@ -113,17 +125,12 @@ static void on_select_long(ClickRecognizerRef r, void *ctx) {
   cancel_timers();
   ActionMenuLevel *level = action_menu_level_create(3);
   if (!is_event()) action_menu_level_add_action(level, "Done already", menu_perform, (void *)CC_A_DONE);
-  action_menu_level_add_action(level, "Pause until I resume", menu_perform, (void *)CC_A_PAUSE);
+  action_menu_level_add_action(level, is_note() ? "Stop reminding" : "Pause until I resume", menu_perform,
+                               (void *)CC_A_PAUSE);
   action_menu_level_add_action(level, "Later 60 min", menu_perform, (void *)CC_A_LATER_LONG);
   s_menu_open = true;
   s_menu_action = -1;
-  ActionMenuConfig cfg = {
-    .root_level = level,
-    .colors = { .background = poster_kind_color(s_item->kind), .foreground = GColorBlack },
-    .align = ActionMenuAlignCenter,
-    .did_close = menu_closed,
-  };
-  action_menu_open(&cfg);
+  poster_open_menu(level, poster_kind_color(s_item->kind), menu_closed);
 }
 
 static void click_config(void *ctx) {
@@ -143,8 +150,11 @@ static void fmt_every(uint16_t every, char *buf, int len) {
 // The small line above the title: "10:00 · every hour", "07:00 · 4 steps", "in 10 min · 14:00".
 static void fmt_meta(void) {
   char t[12], e[16];
-  CcItemState *st = cc_state_for(&g_day, s_item->id);
-  if (is_headsup()) {
+  CcItemState *st = cc_state_for(g_day, s_item->id);
+  if (is_note()) {
+    poster_fmt_time(cc_min_of(s_fire.at), t, sizeof(t));
+    snprintf(s_meta, sizeof(s_meta), "note · %s", t);
+  } else if (is_headsup()) {
     poster_fmt_time(s_item->at_min, t, sizeof(t));
     int lead = s_item->priority == CC_CRITICAL ? g_cfg.headsup_critical_min : g_cfg.headsup_important_min;
     int mins = (int)((s_fire.at + lead * 60 - clock_now_local() + 59) / 60);  // the heads-up is due - lead
@@ -192,12 +202,10 @@ static void draw(Layer *layer, GContext *ctx) {
   poster_draw_rail(ctx, b, bg, rail);
 
   graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, s_meta, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                     GRect(POSTER_TEXT_X, 6, POSTER_TEXT_W, 24), GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
+  poster_text(ctx, s_meta, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD), GRect(POSTER_TEXT_X, 6, POSTER_TEXT_W, 24));
 
   if (is_reminder() && !is_headsup() && s_item->goal) {
-    CcItemState *st = cc_state_for(&g_day, s_item->id);
+    CcItemState *st = cc_state_for(g_day, s_item->id);
     int count = st ? st->count : 0;
     if (s_item->goal <= 8) {  // pips fit up to 8 across the text box
       graphics_context_set_stroke_color(ctx, GColorBlack);
@@ -214,8 +222,7 @@ static void draw(Layer *layer, GContext *ctx) {
     }
     char line[24];
     snprintf(line, sizeof(line), "%d of %d today", count, s_item->goal);
-    graphics_draw_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 168, POSTER_TEXT_W, 24),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 168, POSTER_TEXT_W, 24));
   }
 }
 
@@ -243,7 +250,7 @@ static bool show_next(void) {
     memmove(s_queue, s_queue + 1, sizeof(CcFire) * (s_nqueue - 1));
     memmove(s_queue_done, s_queue_done + 1, sizeof(AlertDone) * (s_nqueue - 1));
     s_nqueue--;
-    s_item = item_for(s_fire.id);
+    s_item = item_for(&s_fire);
     if (!s_item) continue;  // deleted since it was planned, or a step end (the run window owns those)
     if (!s_win) {
       s_win = window_create();

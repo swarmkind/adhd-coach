@@ -2,7 +2,7 @@
 // Everything that will want the watch's attention, and the wakeups that cover it.
 #include "cc_types.h"
 
-typedef enum { CC_FIRE_DUE, CC_FIRE_HEADSUP, CC_FIRE_STEP_END, CC_FIRE_FOCUS_END, CC_FIRE_ALARM } CcFireKind;
+typedef enum { CC_FIRE_DUE, CC_FIRE_HEADSUP, CC_FIRE_STEP_END, CC_FIRE_FOCUS_END, CC_FIRE_ALARM, CC_FIRE_NOTE } CcFireKind;
 typedef struct { cc_sec at; uint16_t id; uint8_t kind, priority; } CcFire;
 
 // One next due and one next heads-up per item, plus the running step's end and the Focus

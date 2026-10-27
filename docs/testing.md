@@ -192,3 +192,72 @@ Every screen from the scripted walk is in `docs/screenshots/plan1/`, in walk ord
 - Battery: Coach keeps the touch sensor listening while it is open. Compare a day with Coach left up as the clock against the usual drain.
 - Coach as the clock: leave Coach open on home for a few hours. It should still be there, unless something else took over (a reboot, another app). Check whether holding Back on home leaves Coach anyway; if it does, that is the system's own exit and fine. Set Quick Launch hold Up to Coach so home is one hold away after a reboot.
 - Quiet Time (Plan 2): with it on, a reminder slot passes with no screen and no buzz, the log reads `quiet: skip item N`, and Today shows it neither counted nor missed. Events, tasks and routines still alert. The emulator has no Quiet Time switch.
+
+## Timer steps and battery bar (1.1.0, 2026-10-25)
+
+Release build on the emulator, screens checked by VNC grabs.
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Timer waits | Start the sample routine, reach Plank | 1:00, "Select to start", "start" on the rail; still 1:00 five seconds later | Pass |
+| Start, stop, again | Select, wait, Select, Select | Counts down with "ends 07:03" and "stop"; "stopped" holds the time; carries on from it | Pass |
+| Time up | Start Plank, wait 61 s | Moves to Weight (3 of 4) with "undo" for 5 s, then the number rail | Pass |
+| Battery bar | `pebble emu-battery --percent` 80, 40, 20 | Four blue bars, two blue, one red | Pass |
+| Finish beeps | Sounds on, watch not muted | Three beeps with a firm buzz | Not checkable in the emulator: wrist check |
+
+## Focus reset, relative alarms, battery shape (1.2.0, 2026-10-27)
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Focus reset | Start Focus, wait, Up | "reset" at top right while running; 24:57 back to 25:00, paused | Pass |
+| Time now | Hold Select, Alarms; New alarm, Custom | "Now 15:18" heads the list; "now 15:27" top right in the editor; the list's time moves on each minute | Pass |
+| In N min | New alarm | In 5/10/15/30 min and In 1 hour, each with its ring time, then Custom | Pass |
+| In 5 min rings | Pick In 5 min, jump the clock 285 s | A 15:23 "Once · sound" row; rings as Alarm 15:23 Once; Stop removes it from the list | Pass |
+| Battery shape | `pebble emu-battery --percent` 80, 20 | Grey outline with a terminal; four bars in the home colour; one red bar | Pass |
+
+## Voice note to-dos (1.3.0, 2026-10-27)
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Hold menu | `pebble transcribe "Call the bank about the blocked card before Friday"`, Down on home; Today, Voice notes, hold Select | In 30 min · 16:17, In 1 hour · 16:47, Tomorrow · 09:00, Add to Today, Rename, Delete | Pass |
+| In 30 min | Pick it | Tick; the log row reads "0:05 · to do"; Today lists "Call the bank about the", "note · 16:18" after Tidy desk | Pass, after a fix: the time is now taken when the menu opens (it had moved a minute) |
+| Reminder | Jump the clock to 16:19:10 | Purple alert "note · 16:18", later / done / skip | Pass |
+| Done | Select | The row leaves Today | Pass |
+| Today menu | Add to Today, Select on the row | Done, the three times, Open note; no "No reminder" until it has a time | Pass |
+| Open note | Pick it | The transcript, Back returns to Today | Pass |
+| New time | In 1 hour; Select again | "note · 16:50"; the menu now has No reminder | Pass |
+| Tomorrow | Pick it | "note · tomorrow 09:00" | Pass |
+| Next morning | Jump to 09:00:10, Back on the system notice, skip Drink water | "note · 09:00" alert; Later gives "note · 09:30" | Pass |
+| Six at most | Six notes as to-dos, hold Select on a seventh | "To-do list full" | Not walked: host-tested in `test_todo.c` |
+| No answer | Leave the alert | One automatic Later, then it stays in Today quietly | Not walked: host-tested in `test_todo.c` |
+
+## Pick day and time (1.4.0, 2026-10-27)
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Survives the update | Install 1.4.0 over 1.3.0 | The to-do still reads "note · tomorrow 09:30" (to-dos and the day now load onto the heap) | Pass |
+| In both menus | Select on the to-do in Today; hold Select on its note | "Pick day and time" after the three quick times | Pass |
+| Starts from the reminder | Pick it | "Tomorrow", 09:30, day underlined, "now 16:11" | Pass |
+| Day, hour, minutes | Up 3; Select, Up 5; Select, Up 1 | "Sat 31 Oct", "in 4 days"; 14:30; 14:35 with "save" on the rail | Pass |
+| Saved | Select | "note · Sat 14:35" in Today | Pass |
+| A week or more | Again, Up 10, Select 3 times | "note · Tue 10 Nov 14:35" | Pass |
+| Not in the past | Again, Down 16 | "Today", 16:15, "in 3 min" (now 16:12) | Pass |
+| It rings | Save, jump to 16:15:10 | "note · 16:15" alert; Later gives "note · 16:45" | Pass |
+| Back cancels | Voice log, Pick day and time, Back | The note still "0:05 · to do" at 16:45 | Pass |
+| Alarm editor unchanged | Alarms, 07:00, Change; Select | "< Alarm", "now 16:14", 07:00 with the hour then the minutes underlined | Pass |
+| Rail taps | Tap +, next, - on the picker; tap the day or the time | Steps, moves on, underlines what was tapped | Wrist check: the emulator sends no touch positions |
+
+
+## Size refactor (1.4.1, 2026-10-27)
+
+An A/B walk: the same emulator snapshot and clock (Wed 28 Oct 22:30:05), the same 48 scripted screens through VNC, 1.4.0 against the new build, compared pixel by pixel. The walk covers home, Focus, the home menu, Today and its to-do menu and picker, the voice log and note menu, settings, a routine item menu, the alarm list, editor and new-alarm menu, an alarm ring, a to-do alert, the Focus menu, and a routine run to its Done screen.
+
+| Check | Expected | Result |
+|---|---|---|
+| Harness repeats | Two walks of 1.4.0 match | 46 of 48; the alarm ring and a marquee frame caught at different moments, so the marquee waits went up and the ring is compared allowing for its slide |
+| Shared drawing (no LTO), 63,475 bytes | Every screen matches 1.4.0 | 48 of 48 |
+| LTO, first try | Installs | Failed: LTO dropped the app header and the build still passed. Fixed in `wscript`; the build now checks for it |
+| LTO, 59,936 bytes | Every screen matches 1.4.0 | 47 of 48 exact; the alarm ring matches with a 2 px shift, the window caught at a different point of its auto-stop slide (two 1.4.0 walks differ the same way) |
+| Stack, LTO | Room left after the walk | 1,744 B used below `main` at the deepest, 2,180 B never touched |
+| 1.4.1 | Installs over the snapshot | Home matches 1.4.0 pixel for pixel |
+| Host tests | All pass | C 810 of 810, JS 50 of 50 |

@@ -9,8 +9,10 @@
 #include "railtap.h"
 #include "../platform/voice.h"
 #include "../coach.h"
+#include "../core/cc_battery.h"
 #include "../platform/store.h"
 #include "../platform/clock.h"
+#include "when_win.h"
 #include "../config.h"
 #include "../core/cc_fires.h"
 #include "../core/cc_time.h"
@@ -74,7 +76,7 @@ static void compute(void) {
     return;
   }
   CcFire f[16];
-  int n = cc_collect(g_items, g_nitems, &g_day, CC_NEVER, CC_NEVER, now, &g_cfg, f, 16);
+  int n = cc_collect(g_items, g_nitems, g_day, CC_NEVER, CC_NEVER, now, &g_cfg, f, 16);
   const CcItem *next = NULL;
   cc_sec at = 0;
   for (int i = 0; i < n && !next; i++)
@@ -112,8 +114,7 @@ static void draw(Layer *layer, GContext *ctx) {
   graphics_context_set_text_color(ctx, GColorBlack);
   graphics_draw_text(ctx, t, fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS), GRect(POSTER_TEXT_X, 8, POSTER_TEXT_W, 48),
                      GTextOverflowModeFill, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, d, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 54, POSTER_TEXT_W, 24),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  poster_text(ctx, d, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 54, POSTER_TEXT_W, 24));
   cc_sec ring = CC_NEVER;  // the next alarm within a day: a bell and its time, at the right of the date
   for (int i = 0; i < g_alarms.n; i++) {
     cc_sec at = cc_alarm_next(&g_alarms.a[i], now);
@@ -134,8 +135,8 @@ static void draw(Layer *layer, GContext *ctx) {
   graphics_fill_rect(ctx, GRect(0, BLOCK_Y, w, BLOCK_H), 0, GCornerNone);
   if (s_state == H_NEXT || s_state == H_PARKED || s_state == H_FOCUS) {
     graphics_context_set_text_color(ctx, s_color);
-    graphics_draw_text(ctx, s_when, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD), GRect(POSTER_TEXT_X, BLOCK_Y + 6, POSTER_TEXT_W, 22),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, s_when, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                GRect(POSTER_TEXT_X, BLOCK_Y + 6, POSTER_TEXT_W, 22));
   } else {
     graphics_context_set_text_color(ctx, GColorWhite);
     const char *msg = s_state == H_NOTHING ? "Nothing scheduled" : "All done for today";
@@ -143,14 +144,14 @@ static void draw(Layer *layer, GContext *ctx) {
                        GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
     if (s_state == H_ALL_DONE) {
       graphics_context_set_text_color(ctx, GColorLightGray);
-      graphics_draw_text(ctx, s_later, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, BLOCK_Y + 58, POSTER_TEXT_W, 22),
-                         GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      poster_text(ctx, s_later, fonts_get_system_font(FONT_KEY_GOTHIC_18),
+                  GRect(POSTER_TEXT_X, BLOCK_Y + 58, POSTER_TEXT_W, 22));
     }
   }
 
   if (s_goal_slot >= 0) {  // reminder progress: pips and "4/8"
     const CcItem *it = &g_items[s_goal_slot];
-    CcItemState *st = cc_state_for(&g_day, it->id);
+    CcItemState *st = cc_state_for(g_day, it->id);
     int count = st ? st->count : 0, x = POSTER_TEXT_X, y = BLOCK_Y + BLOCK_H + 20;
     graphics_context_set_fill_color(ctx, GColorBlack);
     graphics_context_set_stroke_color(ctx, GColorBlack);
@@ -166,15 +167,25 @@ static void draw(Layer *layer, GContext *ctx) {
     char c[12];
     snprintf(c, sizeof(c), "%d/%d", count, it->goal);
     graphics_context_set_text_color(ctx, GColorBlack);
-    graphics_draw_text(ctx, c, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD), GRect(x, y - 7, 60, 24),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-    graphics_draw_text(ctx, it->name, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(POSTER_TEXT_X, y + 12, POSTER_TEXT_W, 18),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, c, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD), GRect(x, y - 7, 60, 24));
+    poster_text(ctx, it->name, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+                GRect(POSTER_TEXT_X, y + 12, POSTER_TEXT_W, 18));
   }
 
   RailAction rail[3] = { { G_FOCUS, "focus" }, { G_TODAY, "today" }, { G_NOTE, "note" } };
   if (s_state == H_PARKED || s_state == H_FOCUS) rail[1] = (RailAction){ G_RESUME, "go" };
   poster_draw_rail(ctx, b, s_color, rail);
+
+  // Battery, above "focus": a battery with five bars inside, the last one left red at 20% or less.
+  // The minute redraw keeps it current.
+  uint8_t pct = battery_state_service_peek().charge_percent;
+  int bars = cc_battery_bars(pct), x = b.size.w - POSTER_RAIL_W + 4;
+  graphics_context_set_stroke_color(ctx, GColorLightGray);
+  graphics_draw_rect(ctx, GRect(x, 10, 28, 12));
+  graphics_context_set_fill_color(ctx, GColorLightGray);
+  graphics_fill_rect(ctx, GRect(x + 28, 13, 2, 6), 0, GCornerNone);  // the terminal
+  graphics_context_set_fill_color(ctx, cc_battery_low(pct) ? GColorRed : s_color);
+  for (int i = 0; i < bars; i++) graphics_fill_rect(ctx, GRect(x + 2 + i * 5, 12, 4, 8), 0, GCornerNone);
 }
 
 static void on_select(ClickRecognizerRef r, void *ctx) {
@@ -211,13 +222,7 @@ static void on_select_long(ClickRecognizerRef r, void *ctx) {
   action_menu_level_add_action(level, "Today", menu_perform, (void *)M_TODAY);
   action_menu_level_add_action(level, "Alarms", menu_perform, (void *)M_ALARMS);
   action_menu_level_add_action(level, "Exit ADHD Coach", menu_perform, (void *)M_EXIT);
-  ActionMenuConfig cfg = {
-    .root_level = level,
-    .colors = { .background = s_color, .foreground = GColorBlack },
-    .align = ActionMenuAlignCenter,
-    .did_close = menu_closed,
-  };
-  action_menu_open(&cfg);
+  poster_open_menu(level, s_color, menu_closed);
 }
 
 static void on_back(ClickRecognizerRef r, void *ctx) {}  // home is the clock: Back stays here
@@ -283,4 +288,6 @@ bool home_win_on_top(void) { return s_win && window_stack_get_top_window() == s_
 void ui_refresh_all(void) {
   refresh();
   today_win_refresh();
+  alarms_win_refresh();
+  when_win_refresh();
 }

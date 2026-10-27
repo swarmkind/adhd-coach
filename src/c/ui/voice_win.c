@@ -8,13 +8,17 @@
 #include "../platform/voice.h"
 #include "../platform/buzz.h"
 #include "../platform/clock.h"
+#include "../platform/store.h"
+#include "../platform/wake.h"
+#include "home_win.h"
+#include "when_win.h"
 #include "../core/cc_time.h"
 
 #define ROW_H 52
 #define TEXT_X 12
 #define NOTES_MAX 100
 
-enum { M_RENAME, M_DELETE, M_KEEP };
+enum { M_RENAME, M_DELETE, M_KEEP, M_IN30, M_IN60, M_MORNING, M_TODAY, M_FULL, M_PICK };
 
 // ---- shared ----
 
@@ -151,7 +155,7 @@ static void note_unload(Window *w) {
   s_text = NULL;
 }
 
-static void note_open(uint32_t id) {
+void voice_note_open(uint32_t id) {
   s_note_id = id;
   if (!s_note_win) {
     s_note_win = window_create();
@@ -170,6 +174,7 @@ static CcNote *s_notes;
 static int s_n;
 static uint32_t s_menu_id;
 static int s_choice = -1;
+static cc_sec s_menu_now;  // the menu's times are from when it opened
 
 static void reload(void) {
   s_n = s_notes ? notes_list(s_notes, NOTES_MAX) : 0;
@@ -180,39 +185,24 @@ static uint16_t num_rows(MenuLayer *m, uint16_t section, void *ctx) { return (ui
 static int16_t row_h(MenuLayer *m, MenuIndex *i, void *ctx) { return ROW_H; }
 
 static void draw_row(GContext *ctx, const Layer *cell, MenuIndex *idx, void *data) {
-  GRect b = layer_get_bounds(cell);
-  bool hl = menu_cell_layer_is_highlighted(cell);
-  GColor accent = poster_kind_color(POSTER_VOICE);
-  graphics_context_set_fill_color(ctx, hl ? accent : GColorBlack);
-  graphics_fill_rect(ctx, b, 0, GCornerNone);
-  int w = b.size.w - 2 * TEXT_X;
-  char title[CC_NAME_MAX + 24], sub[48], l[8];
+  char title[CC_NAME_MAX + 24], sub[64], l[8];
   if (!s_n) {
-    snprintf(title, sizeof(title), "No notes yet");
-    snprintf(sub, sizeof(sub), "Down on home records one");
-  } else {
-    const CcNote *n = &s_notes[idx->row];
-    if (!hl) {  // a strip of the voice colour marks each row
-      graphics_context_set_fill_color(ctx, accent);
-      graphics_fill_rect(ctx, GRect(0, 6, 4, b.size.h - 12), 0, GCornerNone);
-    }
-    note_title(n, title, sizeof(title));
-    fmt_len(n->len_s, l, sizeof(l));
-    const CcItem *link = coach_item(n->link);
-    if (n->status != CC_NOTE_OK) snprintf(sub, sizeof(sub), "missed · %s", l);
-    else if (link) snprintf(sub, sizeof(sub), "%s · %s", l, link->name);
-    else snprintf(sub, sizeof(sub), "%s", l);
+    poster_draw_row(ctx, cell, poster_kind_color(POSTER_VOICE), false, "No notes yet", "Down on home records one");
+    return;
   }
-  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorWhite);
-  graphics_draw_text(ctx, title, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(TEXT_X, 0, w, 30),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorLightGray);
-  graphics_draw_text(ctx, sub, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(TEXT_X, 27, w, 22),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  const CcNote *n = &s_notes[idx->row];
+  note_title(n, title, sizeof(title));
+  fmt_len(n->len_s, l, sizeof(l));
+  const CcItem *link = coach_item(n->link);
+  const char *todo = cc_todo_for_note(g_todos, n->id) ? " · to do" : "";
+  if (n->status != CC_NOTE_OK) snprintf(sub, sizeof(sub), "missed · %s%s", l, todo);
+  else if (link) snprintf(sub, sizeof(sub), "%s · %s%s", l, link->name, todo);
+  else snprintf(sub, sizeof(sub), "%s%s", l, todo);
+  poster_draw_row(ctx, cell, poster_kind_color(POSTER_VOICE), true, title, sub);  // a voice-colour strip on each row
 }
 
 static void select_click(MenuLayer *m, MenuIndex *idx, void *ctx) {
-  if (s_n) note_open(s_notes[idx->row].id);
+  if (s_n) voice_note_open(s_notes[idx->row].id);
 }
 
 static void renamed(const char *text) {
@@ -221,10 +211,58 @@ static void renamed(const char *text) {
   reload();
 }
 
+// The note as a to-do: its name, else the transcript's start, else its date.
+static void make_todo(uint32_t id, cc_sec at) {
+  CcNote n;
+  char *text = malloc(CC_NOTE_TEXT_MAX + 1);
+  if (!text) return;
+  if (notes_read(id, &n, text)) {
+    if (n.name[0]) snprintf(text, CC_NOTE_TEXT_MAX + 1, "%s", n.name);
+    else if (n.status != CC_NOTE_OK) note_title(&n, text, CC_NOTE_TEXT_MAX + 1);
+    if (cc_todo_add(g_todos, id, text, at)) {
+      store_save_todos();
+      wake_rearm();
+      ui_refresh_all();
+      buzz_tick();
+    }
+  }
+  free(text);
+}
+
+cc_sec voice_todo_at(int which, cc_sec now) {
+  if (which == 0) return now + 30 * 60;
+  if (which == 1) return now + 60 * 60;
+  return cc_todo_morning(now, g_cfg.event_time_min);
+}
+
+cc_sec voice_todo_pick_start(cc_sec at, cc_sec now) { return at > now ? at : voice_todo_at(2, now); }
+
+const char *voice_todo_label(int which, cc_sec now) {
+  static char label[VOICE_TODO_TIMES][28];
+  cc_sec at = voice_todo_at(which, now);
+  char t[12];
+  poster_fmt_time(cc_min_of(at), t, sizeof(t));
+  const char *what = which == 0 ? "In 30 min" : which == 1 ? "In 1 hour"
+                     : cc_day_of(at) == cc_day_of(now) ? "This morning" : "Tomorrow";
+  snprintf(label[which], sizeof(label[which]), "%s · %s", what, t);
+  return label[which];
+}
+
+static void picked(cc_sec at) {
+  make_todo(s_menu_id, at);
+  reload();
+}
+
 static void after_menu(void *data) {
   int choice = s_choice;
   s_choice = -1;
-  if (choice == M_RENAME) voice_dictate_text(renamed);
+  if (choice == M_TODAY) { make_todo(s_menu_id, 0); reload(); }
+  else if (choice == M_PICK) {
+    const CcTodo *t = cc_todo_for_note(g_todos, s_menu_id);
+    when_win_open(voice_todo_pick_start(t ? t->at : 0, s_menu_now), picked);
+  }
+  else if (choice >= M_IN30 && choice <= M_MORNING) { make_todo(s_menu_id, voice_todo_at(choice - M_IN30, s_menu_now)); reload(); }
+  else if (choice == M_RENAME) voice_dictate_text(renamed);
   else if (choice == M_DELETE) { notes_delete(s_menu_id); reload(); }
 }
 
@@ -241,18 +279,21 @@ static void select_long(MenuLayer *m, MenuIndex *idx, void *ctx) {
   if (!s_n) return;
   s_menu_id = s_notes[idx->row].id;
   s_choice = -1;
-  ActionMenuLevel *root = action_menu_level_create(2), *del = action_menu_level_create(2);
+  ActionMenuLevel *root = action_menu_level_create(7), *del = action_menu_level_create(2);
+  if (g_todos->n < CC_TODO_MAX || cc_todo_for_note(g_todos, s_menu_id)) {
+    s_menu_now = clock_now_local();
+    for (int i = 0; i < VOICE_TODO_TIMES; i++)
+      action_menu_level_add_action(root, voice_todo_label(i, s_menu_now), menu_perform, (void *)(M_IN30 + i));
+    action_menu_level_add_action(root, "Pick day and time", menu_perform, (void *)M_PICK);
+    action_menu_level_add_action(root, "Add to Today", menu_perform, (void *)M_TODAY);
+  } else {
+    action_menu_level_add_action(root, "To-do list full", menu_perform, (void *)M_FULL);
+  }
   action_menu_level_add_action(root, "Rename", menu_perform, (void *)M_RENAME);
   action_menu_level_add_action(del, "Delete note", menu_perform, (void *)M_DELETE);
   action_menu_level_add_action(del, "Keep", menu_perform, (void *)M_KEEP);
   action_menu_level_add_child(root, del, "Delete");
-  ActionMenuConfig cfg = {
-    .root_level = root,
-    .colors = { .background = poster_kind_color(POSTER_VOICE), .foreground = GColorBlack },
-    .align = ActionMenuAlignCenter,
-    .did_close = menu_closed,
-  };
-  action_menu_open(&cfg);
+  poster_open_menu(root, poster_kind_color(POSTER_VOICE), menu_closed);
 }
 
 static void log_load(Window *w) {

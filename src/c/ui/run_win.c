@@ -80,8 +80,7 @@ static void num_draw(GContext *ctx, const NumState *n, int y) {
     snprintf(day, sizeof(day), "on %s", wd);
   }
   snprintf(line, sizeof(line), "last %s %s", last, day);
-  graphics_draw_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, y + 68, POSTER_TEXT_W, 24),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  poster_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, y + 68, POSTER_TEXT_W, 24));
 }
 
 // ---- done screen ----
@@ -104,7 +103,7 @@ static void done_close(void *data) {
 static void done_find_next(void) {
   cc_sec now = clock_now_local();
   CcFire f[16];
-  int n = cc_collect(g_items, g_nitems, &g_day, CC_NEVER, CC_NEVER, now, &g_cfg, f, 16);
+  int n = cc_collect(g_items, g_nitems, g_day, CC_NEVER, CC_NEVER, now, &g_cfg, f, 16);
   s_done_has_next = false;
   for (int i = 0; i < n; i++) {
     if (f[i].kind != CC_FIRE_DUE) continue;
@@ -124,7 +123,7 @@ static void done_find_next(void) {
   s_done_anytime = -1;
   for (int i = 0; i < g_nitems; i++) {
     const CcItem *it = &g_items[i];
-    CcItemState *st = cc_state_for(&g_day, it->id);
+    CcItemState *st = cc_state_for(g_day, it->id);
     if (it->kind == CC_TASK && (it->flags & CC_F_ANYTIME) && (!st || st->status == CC_ST_NONE)) {
       s_done_anytime = i;
       break;
@@ -137,10 +136,9 @@ static void done_draw(Layer *layer, GContext *ctx) {
   GColor bg = poster_kind_color(CC_ROUTINE);
   poster_draw_background(ctx, b, bg);
   graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, "Done", fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD), GRect(POSTER_TEXT_X, 14, POSTER_TEXT_W, 50),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, s_done_routine, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                     GRect(POSTER_TEXT_X, 66, POSTER_TEXT_W, 24), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  poster_text(ctx, "Done", fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD), GRect(POSTER_TEXT_X, 14, POSTER_TEXT_W, 50));
+  poster_text(ctx, s_done_routine, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+              GRect(POSTER_TEXT_X, 66, POSTER_TEXT_W, 24));
 
   // the next thing, in a black block
   int w = b.size.w - POSTER_RAIL_W;
@@ -148,15 +146,15 @@ static void done_draw(Layer *layer, GContext *ctx) {
   graphics_fill_rect(ctx, GRect(0, 112, w, 92), 0, GCornerNone);
   if (s_done_has_next) {
     graphics_context_set_text_color(ctx, s_done_next_color);
-    graphics_draw_text(ctx, "Next", fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD), GRect(POSTER_TEXT_X, 116, POSTER_TEXT_W, 22),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, "Next", fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                GRect(POSTER_TEXT_X, 116, POSTER_TEXT_W, 22));
     graphics_context_set_text_color(ctx, GColorWhite);
-    graphics_draw_text(ctx, s_done_when, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 172, POSTER_TEXT_W, 22),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, s_done_when, fonts_get_system_font(FONT_KEY_GOTHIC_18),
+                GRect(POSTER_TEXT_X, 172, POSTER_TEXT_W, 22));
   } else {
     graphics_context_set_text_color(ctx, GColorWhite);
-    graphics_draw_text(ctx, "All done for today", fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
-                       GRect(POSTER_TEXT_X, 140, POSTER_TEXT_W, 30), GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, "All done for today", fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                GRect(POSTER_TEXT_X, 140, POSTER_TEXT_W, 30));
   }
 
   RailAction rail[3] = { { G_NONE, NULL }, { G_NONE, NULL }, { G_NONE, NULL } };
@@ -166,8 +164,7 @@ static void done_draw(Layer *layer, GContext *ctx) {
     graphics_context_set_text_color(ctx, GColorBlack);
     char line[CC_NAME_MAX + 8];
     snprintf(line, sizeof(line), "or: %s", g_items[s_done_anytime].name);
-    graphics_draw_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 204, POSTER_TEXT_W, 22),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 204, POSTER_TEXT_W, 22));
   }
 }
 
@@ -267,7 +264,7 @@ static void step_tick(void *data) {
   if (!g_run.active) return;
   CcRunEvent ev = cc_run_tick(&g_run, steps(), clock_now_local());
   if (ev != CC_RUN_NONE) {
-    buzz_tick();
+    buzz_step_done();
     after_change(ev);
     return;
   }
@@ -318,13 +315,12 @@ static void step_draw(Layer *layer, GContext *ctx) {
     graphics_draw_text(ctx, t, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD), GRect(POSTER_TEXT_X, 80, POSTER_TEXT_W, 50),
                        GTextOverflowModeFill, GTextAlignmentLeft, NULL);
     if (g_run.paused) {
-      snprintf(line, sizeof(line), "paused");
+      snprintf(line, sizeof(line), cc_run_waiting(&g_run) ? "Select to start" : "stopped");
     } else {
       poster_fmt_time(cc_min_of(g_run.step_end), t, sizeof(t));
       snprintf(line, sizeof(line), "ends %s", t);
     }
-    graphics_draw_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 132, POSTER_TEXT_W, 24),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 132, POSTER_TEXT_W, 24));
   } else if (s->type == CC_STEP_NUMBER) {
     num_draw(ctx, &s_num, 76);
   }
@@ -332,13 +328,11 @@ static void step_draw(Layer *layer, GContext *ctx) {
   if (g_run.step + 1 < g_run.step_count && s->type != CC_STEP_NUMBER) {
     char next[CC_NAME_MAX + 8];
     snprintf(next, sizeof(next), "next: %s", steps()[g_run.step + 1].name);
-    graphics_draw_text(ctx, next, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 196, POSTER_TEXT_W, 24),
-                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    poster_text(ctx, next, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 196, POSTER_TEXT_W, 24));
   }
 
   RailAction rail[3] = { { G_NONE, NULL }, { G_DONE, "done" }, { G_NONE, NULL } };
-  // "pause" is wider than the rail; the two glyphs say it on their own.
-  if (s->type == CC_STEP_TIMED) rail[1] = (RailAction){ g_run.paused ? G_RESUME : G_PAUSE, NULL };
+  if (s->type == CC_STEP_TIMED) rail[1] = g_run.paused ? (RailAction){ G_RESUME, "start" } : (RailAction){ G_PAUSE, "stop" };
   if (s->type == CC_STEP_NUMBER) {
     rail[0] = (RailAction){ G_PLUS, NULL };
     rail[1] = (RailAction){ G_DONE, "save" };
@@ -409,13 +403,7 @@ static void step_select_long(ClickRecognizerRef r, void *ctx) {
   action_menu_level_add_action(level, "Skip routine today", menu_perform, (void *)M_SKIP);
   s_menu_open = true;
   s_menu_choice = -1;
-  ActionMenuConfig cfg = {
-    .root_level = level,
-    .colors = { .background = poster_kind_color(CC_ROUTINE), .foreground = GColorBlack },
-    .align = ActionMenuAlignCenter,
-    .did_close = menu_closed,
-  };
-  action_menu_open(&cfg);
+  poster_open_menu(level, poster_kind_color(CC_ROUTINE), menu_closed);
 }
 
 static void step_clicks(void *ctx) {
@@ -445,9 +433,9 @@ static void step_appear(Window *w) {
   // Catch up a clock that ran out while this window was hidden or the app was closed.
   CcRunEvent ev = cc_run_tick(&g_run, steps(), clock_now_local());
   if (ev != CC_RUN_NONE) {
-    buzz_tick();
+    buzz_step_done();
     store_save_run();
-    wake_rearm();  // the next step's end, if timed
+    wake_rearm();
   }
   if (ev == CC_RUN_FINISHED) { finish_run(true); return; }
   enter_step();

@@ -27,9 +27,9 @@ static AppTimer *s_deadline;
 static uint16_t linked_item(void) {
   if (g_run.active) return g_run.item_id;
   if (g_focus.active && g_focus.label_id) return g_focus.label_id;
-  for (int i = 0; i < g_day.n; i++) {
-    const CcItem *it = coach_item(g_day.s[i].id);
-    if (it && it->kind == CC_TASK && g_day.s[i].status == CC_ST_ACTIVE) return it->id;
+  for (int i = 0; i < g_day->n; i++) {
+    const CcItem *it = coach_item(g_day->s[i].id);
+    if (it && it->kind == CC_TASK && g_day->s[i].status == CC_ST_ACTIVE) return it->id;
   }
   return 0;
 }

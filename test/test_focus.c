@@ -111,3 +111,25 @@ void test_focus_setup(void) {
   T_TRUE(!cc_focus_adjust(&cfg, CC_TAP_WORK_MORE)); T_EQ(cfg.focus_work_min, 120);
 
 }
+
+// Reset: the current phase back to its own full length, stopped until Select.
+void test_focus_reset(void) {
+  CcSettings cfg = CC_SETTINGS_DEFAULT;
+  cc_sec t = cc_at(D, 600);
+  CcFocus f;
+  cc_focus_start(&f, &cfg, 0, t);
+  cc_focus_reset(&f);
+  T_EQ(f.paused, 1); T_EQ(cc_focus_end(&f), CC_NEVER);
+  T_EQ(cc_focus_remaining(&f, t + 100), 1500);
+  T_EQ(f.phase, CC_FOCUS_WORK); T_EQ(f.cycle, 1);
+  cc_focus_toggle_pause(&f, t);
+  cc_focus_skip(&f, t + 60);        // into the short break
+  cc_focus_add(&f, 5, t + 60);      // time added is dropped too
+  cc_focus_reset(&f);
+  T_EQ(f.phase, CC_FOCUS_SHORT); T_EQ(cc_focus_remaining(&f, t + 500), 300);
+  cc_focus_toggle_pause(&f, t + 600);
+  T_EQ(f.phase_end, t + 900);
+  CcFocus off; memset(&off, 0, sizeof(off));
+  cc_focus_reset(&off);             // nothing running: nothing changes
+  T_EQ(off.active, 0); T_EQ(off.paused, 0);
+}

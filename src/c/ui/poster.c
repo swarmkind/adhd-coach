@@ -1,6 +1,10 @@
 #include "poster.h"
 #include "../core/cc_time.h"
 #include "../core/cc_types.h"
+#include "../platform/clock.h"
+
+#define DIGITS_W 56
+#define COLON_W 14
 
 GColor poster_kind_color(uint8_t kind) {
   switch (kind) {
@@ -36,30 +40,55 @@ static void triangle(GContext *ctx, GPoint o, GPoint a, GPoint b, GPoint c) {
   gpath_draw_filled(ctx, &p);
 }
 
+// Each glyph's lines as bytes, one string per glyph in Glyph order: a point is x << 4 | y (x is never 0),
+// joined to the point before it; 1 lifts the pen and 2 or 3 sets the stroke width (and lifts it too).
+static const char STROKES[] =
+  "\0"                                       // G_NONE
+  "\x13\x83\x1b\x8b\x02\xa8\xe8\xad\xed" "\0"  // G_LATER: Zz
+  "\x29\x6d\xe4" "\0"                        // G_DONE
+  "\xe8\xed\x9c" "\0"                        // G_SKIP
+  "\0"                                       // G_START
+  "\x82\x8e\x01\x28\xe8" "\0"                // G_PLUS
+  "\x28\xe8" "\0"                            // G_MINUS
+  "\0"                                       // G_TODAY
+  "\x86\x89\xab\x01\x61\xa1" "\0"            // G_FOCUS
+  "\x8d\x8f\x01\x5f\xbf" "\0"                // G_NOTE
+  "\x28\x2d\x7c" "\0"                        // G_UNDO
+  "\0"                                       // G_RESUME
+  "\0"                                       // G_PAUSE
+  "\x2b\x85\xeb" "\0"                        // G_UP
+  "\x25\x8b\xe5" "\0"                        // G_DOWN
+  "\0"                                       // G_STOP
+  "\x37\x3c\x01\xd7\xdc\x01\x1c\xfc";        // G_ALARM
+
+static void strokes(GContext *ctx, GPoint o, Glyph g) {
+  const char *s = STROKES;
+  for (int i = 0; i < (int)g; i++) s += strlen(s) + 1;
+  GPoint prev = o;
+  bool down = false;
+  for (; *s; s++) {
+    uint8_t c = (uint8_t)*s;
+    if (c < 0x10) {
+      if (c > 1) graphics_context_set_stroke_width(ctx, c);
+      down = false;
+      continue;
+    }
+    GPoint p = GPoint(o.x + (c >> 4), o.y + (c & 15));
+    if (down) graphics_draw_line(ctx, prev, p);
+    prev = p;
+    down = true;
+  }
+}
+
 void poster_draw_glyph(GContext *ctx, Glyph g, GPoint centre, GColor color) {
   GPoint o = GPoint(centre.x - 8, centre.y - 8);
   graphics_context_set_antialiased(ctx, true);
   graphics_context_set_stroke_color(ctx, color);
   graphics_context_set_fill_color(ctx, color);
   graphics_context_set_stroke_width(ctx, 3);
-  switch (g) {
-    case G_NONE: break;
-    case G_LATER:  // Zz
-      line(ctx, o, 1, 3, 8, 3); line(ctx, o, 8, 3, 1, 11); line(ctx, o, 1, 11, 8, 11);
-      graphics_context_set_stroke_width(ctx, 2);
-      line(ctx, o, 10, 8, 14, 8); line(ctx, o, 14, 8, 10, 13); line(ctx, o, 10, 13, 14, 13);
-      break;
-    case G_DONE: line(ctx, o, 2, 9, 6, 13); line(ctx, o, 6, 13, 14, 4); break;
-    case G_SKIP:  // arrow curving over to the right
-      arc(ctx, o, 8, 11, 6, -90, 75);
-      line(ctx, o, 14, 8, 14, 13); line(ctx, o, 14, 13, 9, 12);
-      break;
-    case G_UNDO:  // the same arrow, mirrored
-      arc(ctx, o, 8, 11, 6, -75, 90);
-      line(ctx, o, 2, 8, 2, 13); line(ctx, o, 2, 13, 7, 12);
-      break;
-    case G_PLUS: line(ctx, o, 8, 2, 8, 14); line(ctx, o, 2, 8, 14, 8); break;
-    case G_MINUS: line(ctx, o, 2, 8, 14, 8); break;
+  switch (g) {  // the shapes under the lines
+    case G_SKIP: arc(ctx, o, 8, 11, 6, -90, 75); break;  // arrow curving over to the right
+    case G_UNDO: arc(ctx, o, 8, 11, 6, -75, 90); break;  // the same arrow, mirrored
     case G_START:
     case G_RESUME: triangle(ctx, o, GPoint(3, 1), GPoint(14, 8), GPoint(3, 15)); break;
     case G_PAUSE:
@@ -75,25 +104,21 @@ void poster_draw_glyph(GContext *ctx, Glyph g, GPoint centre, GColor color) {
     case G_FOCUS:  // stopwatch
       graphics_context_set_stroke_width(ctx, 2);
       graphics_draw_circle(ctx, GPoint(o.x + 8, o.y + 9), 6);
-      line(ctx, o, 8, 6, 8, 9); line(ctx, o, 8, 9, 10, 11); line(ctx, o, 6, 1, 10, 1);
       break;
     case G_NOTE:  // microphone
       graphics_context_set_stroke_width(ctx, 2);
       graphics_fill_rect(ctx, GRect(o.x + 5, o.y, 7, 10), 3, GCornersAll);
       arc(ctx, o, 8, 6, 6, 90, 270);
-      line(ctx, o, 8, 13, 8, 15);
-      line(ctx, o, 5, 15, 11, 15);
       break;
-    case G_UP: line(ctx, o, 2, 11, 8, 5); line(ctx, o, 8, 5, 14, 11); break;
-    case G_DOWN: line(ctx, o, 2, 5, 8, 11); line(ctx, o, 8, 11, 14, 5); break;
     case G_STOP: graphics_fill_rect(ctx, GRect(o.x + 3, o.y + 3, 11, 11), 0, GCornerNone); break;
     case G_ALARM:  // bell
       graphics_context_set_stroke_width(ctx, 2);
       arc(ctx, o, 8, 7, 5, -90, 90);
-      line(ctx, o, 3, 7, 3, 12); line(ctx, o, 13, 7, 13, 12); line(ctx, o, 1, 12, 15, 12);
-      graphics_fill_rect(ctx, GRect(o.x + 6, o.y + 14, 5, 2), 0, GCornerNone);
       break;
+    default: break;
   }
+  if ((unsigned)g <= G_ALARM) strokes(ctx, o, g);
+  if (g == G_ALARM) graphics_fill_rect(ctx, GRect(o.x + 6, o.y + 14, 5, 2), 0, GCornerNone);
 }
 
 void poster_draw_rail(GContext *ctx, GRect bounds, GColor accent, const RailAction actions[3]) {
@@ -122,8 +147,73 @@ void poster_draw_back_hint(GContext *ctx, const char *label) {
   graphics_draw_line(ctx, GPoint(15, 9), GPoint(12, 13));  // chevron: Gothic has no "‹"
   graphics_draw_line(ctx, GPoint(12, 13), GPoint(15, 17));
   graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(19, 3, 80, 18),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  poster_text(ctx, label, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(19, 3, 80, 18));
+}
+
+void poster_text(GContext *ctx, const char *text, GFont f, GRect box) {
+  graphics_draw_text(ctx, text, f, box, GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+}
+
+void poster_draw_row(GContext *ctx, const Layer *cell, GColor accent, bool strip, const char *title, const char *sub) {
+  GRect b = layer_get_bounds(cell);
+  bool hl = menu_cell_layer_is_highlighted(cell);
+  graphics_context_set_fill_color(ctx, hl ? accent : GColorBlack);
+  graphics_fill_rect(ctx, b, 0, GCornerNone);
+  if (strip && !hl) {
+    graphics_context_set_fill_color(ctx, accent);
+    graphics_fill_rect(ctx, GRect(0, 6, 4, b.size.h - 12), 0, GCornerNone);
+  }
+  int w = b.size.w - 2 * POSTER_TEXT_X;
+  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorWhite);
+  if (title)
+    poster_text(ctx, title, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(POSTER_TEXT_X, sub ? 0 : 10, w, 30));
+  if (!sub) return;
+  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorLightGray);
+  poster_text(ctx, sub, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 27, w, 22));
+}
+
+void poster_open_menu(ActionMenuLevel *root, GColor bg, ActionMenuDidCloseCb closed) {
+  ActionMenuConfig cfg = {
+    .root_level = root,
+    .colors = { .background = bg, .foreground = GColorBlack },
+    .align = ActionMenuAlignCenter,
+    .did_close = closed,
+  };
+  action_menu_open(&cfg);
+}
+
+void poster_draw_field(GContext *ctx, const char *text, GFont f, GRect box, GTextAlignment al, bool focused) {
+  graphics_draw_text(ctx, text, f, box, GTextOverflowModeTrailingEllipsis, al, NULL);
+  if (!focused) return;
+  int w = graphics_text_layout_get_content_size(text, f, box, GTextOverflowModeTrailingEllipsis, al).w;
+  int x = al == GTextAlignmentRight ? box.origin.x + box.size.w - w : box.origin.x;
+  graphics_fill_rect(ctx, GRect(x, box.origin.y + box.size.h + 4, w, 4), 0, GCornerNone);
+}
+
+void poster_draw_editor_head(GContext *ctx, const char *label) {
+  poster_draw_back_hint(ctx, label);
+  char t[12], line[16];
+  poster_fmt_time(cc_min_of(clock_now_local()), t, sizeof(t));
+  snprintf(line, sizeof(line), "now %s", t);
+  graphics_draw_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD), GRect(POSTER_TEXT_X, 3, POSTER_TEXT_W, 18),
+                     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+}
+
+void poster_draw_editor_clock(GContext *ctx, int m, int y, int focus) {
+  bool h24 = clock_is_24h_style();
+  int h = m / 60;
+  char hh[4], mm[4];
+  snprintf(hh, sizeof(hh), h24 ? "%02d" : "%d", h24 ? h : h % 12 ? h % 12 : 12);
+  snprintf(mm, sizeof(mm), "%02d", m % 60);
+  GFont big = fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
+  int x = POSTER_TEXT_X, mx = x + DIGITS_W + COLON_W;
+  graphics_context_set_text_color(ctx, GColorBlack);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  poster_draw_field(ctx, hh, big, GRect(x, y, DIGITS_W, 48), GTextAlignmentRight, focus == POSTER_CLOCK_HOUR);
+  poster_draw_field(ctx, ":", big, GRect(x + DIGITS_W, y, COLON_W, 48), GTextAlignmentCenter, false);
+  poster_draw_field(ctx, mm, big, GRect(mx, y, DIGITS_W, 48), GTextAlignmentLeft, focus == POSTER_CLOCK_MIN);
+  if (!h24) poster_draw_field(ctx, h < 12 ? "am" : "pm", fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                              GRect(mx + DIGITS_W, y + 20, 30, 22), GTextAlignmentLeft, false);
 }
 
 void poster_fmt_clock(uint16_t m, char *buf, int len) {

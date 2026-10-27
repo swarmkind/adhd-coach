@@ -91,24 +91,10 @@ static uint16_t num_rows(MenuLayer *m, uint16_t section, void *ctx) { return R_C
 static int16_t row_h(MenuLayer *m, MenuIndex *i, void *ctx) { return ROW_H; }
 
 static void draw_row(GContext *ctx, const Layer *cell, MenuIndex *idx, void *data) {
-  GRect b = layer_get_bounds(cell);
-  bool hl = menu_cell_layer_is_highlighted(cell);
-  GColor accent = poster_kind_color(is_focus(idx->row) ? POSTER_FOCUS : POSTER_NOTHING);
-  graphics_context_set_fill_color(ctx, hl ? accent : GColorBlack);
-  graphics_fill_rect(ctx, b, 0, GCornerNone);
-  if (!hl) {
-    graphics_context_set_fill_color(ctx, accent);
-    graphics_fill_rect(ctx, GRect(0, 6, 4, b.size.h - 12), 0, GCornerNone);
-  }
-  int w = b.size.w - 2 * TEXT_X;
   char v[16];
   value_line(idx->row, v, sizeof(v));
-  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorWhite);
-  graphics_draw_text(ctx, ROWS[idx->row].title, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), GRect(TEXT_X, 0, w, 30),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-  graphics_context_set_text_color(ctx, hl ? GColorBlack : GColorLightGray);
-  graphics_draw_text(ctx, v, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(TEXT_X, 27, w, 22),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  poster_draw_row(ctx, cell, poster_kind_color(is_focus(idx->row) ? POSTER_FOCUS : POSTER_NOTHING), true,
+                  ROWS[idx->row].title, v);
 }
 
 static void edited(bool saved, int32_t value) {

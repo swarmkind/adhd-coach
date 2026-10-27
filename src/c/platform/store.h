@@ -6,15 +6,17 @@
 #include "../core/cc_focus.h"
 #include "../core/cc_sync.h"
 #include "../core/cc_alarm.h"
+#include "../core/cc_todo.h"
 
 extern CcItem *g_items;                  // [CC_MAX_ITEMS] on the heap, like the steps
 extern int g_nitems;
 extern CcStep (*g_steps)[CC_MAX_STEPS];  // [CC_MAX_ITEMS] on the heap: the app image must stay under 64 KB
-extern CcDay g_day;
+extern CcDay *g_day;                     // on the heap, like the items
 extern CcRun g_run;
 extern CcSettings g_cfg;
 extern CcFocus g_focus;
 extern CcAlarms g_alarms;
+extern CcTodos *g_todos;                 // note to-dos, watch-only, on the heap
 
 void store_load(void);  // writes the sample schedule on first run
 void store_save_day(void);
@@ -23,6 +25,7 @@ void store_save_schedule(void);
 void store_save_settings(void);
 void store_save_focus(void);
 void store_save_alarms(void);
+void store_save_todos(void);
 
 void store_log_number(uint16_t item, uint8_t step, int32_t value);
 bool store_last_number(uint16_t item, uint8_t step, int32_t *value, int32_t *utc);
