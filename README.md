@@ -4,13 +4,11 @@ A coach on your wrist for the Pebble Time 2. It walks you through routines one s
 
 Made by Swarmkind ([@swarmkind on X](https://x.com/swarmkind)).
 
-<p>
-<img src="docs/screenshots/guide/home.png" width="160" alt="Home screen: the time, what's next, and today's water count">
-<img src="docs/screenshots/guide/routine_alert.png" width="160" alt="A morning routine alert with Later, Start and Skip">
-<img src="docs/screenshots/guide/routine_step.png" width="160" alt="A timed routine step counting down">
-<img src="docs/screenshots/guide/focus.png" width="160" alt="The Focus timer running">
-<img src="docs/screenshots/guide/alarm.png" width="160" alt="The alarm editor">
-</p>
+<table>
+<tr><td align="center"><img src="docs/screenshots/guide/home.png" width="150" alt="Home: the time, what's next, your water count and next alarm"><br><sub>Home</sub></td><td align="center"><img src="docs/screenshots/guide/today.png" width="150" alt="The Today list"><br><sub>Today</sub></td><td align="center"><img src="docs/screenshots/guide/routine_alert.png" width="150" alt="A morning routine alert with Later, Start and Skip"><br><sub>Something due</sub></td><td align="center"><img src="docs/screenshots/guide/step_timer_wait.png" width="150" alt="A timed routine step waiting for Select"><br><sub>A timer step</sub></td></tr>
+<tr><td align="center"><img src="docs/screenshots/guide/step_number.png" width="150" alt="Logging a number during a routine"><br><sub>Log a number</sub></td><td align="center"><img src="docs/screenshots/guide/focus.png" width="150" alt="The Focus timer running"><br><sub>Focus</sub></td><td align="center"><img src="docs/screenshots/guide/note.png" width="150" alt="A voice note saved as text"><br><sub>A voice note</sub></td><td align="center"><img src="docs/screenshots/guide/note_menu.png" width="150" alt="Turning a note into a to-do"><br><sub>Note to to-do</sub></td></tr>
+<tr><td align="center"><img src="docs/screenshots/guide/picker_day.png" width="150" alt="Picking a day for a to-do reminder"><br><sub>Pick a day</sub></td><td align="center"><img src="docs/screenshots/guide/today_todo.png" width="150" alt="A note to-do in Today"><br><sub>To-dos in Today</sub></td><td align="center"><img src="docs/screenshots/guide/alarm_new.png" width="150" alt="Quick alarms: in 5, 10, 15 or 30 minutes, or an hour"><br><sub>Quick alarms</sub></td><td align="center"><img src="docs/screenshots/guide/alarm_ring.png" width="150" alt="An alarm ringing, with snooze and stop"><br><sub>Alarm</sub></td></tr>
+</table>
 
 ## Who it's for
 
@@ -32,7 +30,25 @@ It is a personal organiser, not a medical device or a treatment.
 - **Today**: everything for today in time order, plus your anytime tasks.
 - **Your clock**: the home screen is built to stay up all day as the watch's main screen.
 
-The full how-to, with examples, is in the **[user guide](docs/guide.md)**.
+## How to use it
+
+The watch has Back on the left and Up, Select and Down on the right. On most screens a black bar down the right side says what each button does right now, and you can tap its labels too.
+
+- **Select** does the main thing: start, done, save.
+- **Hold Select** opens more choices.
+- **Back** goes back. On home it does nothing, so you can't leave by accident.
+
+A typical day:
+
+1. **Leave home on screen.** It's your clock: the time, what's next and how soon, today's water count, and your next alarm.
+2. **When it buzzes, answer it.** Select starts it or ticks it off, Up is Later, Down skips. Ignore it and it nudges you again, but it never nags forever.
+3. **Run a routine one step at a time.** Do the step and press Select. A timer step waits for you, then beeps when the time is up.
+4. **Catch a thought.** Press Down on home and speak. To make it a to-do, open Today > Voice notes, hold Select on the note and pick a time.
+5. **Focus on one thing.** Up on home opens Focus, and Select starts 25 minutes.
+6. **Check Today.** Select on home lists everything due today, your anytime tasks and your to-dos.
+7. **Set an alarm.** Hold Select on home, then Alarms. "In 30 min" is one press away.
+
+Your schedule comes from the planner in the phone app (see [Set up your schedule](#set-up-your-schedule)). The full how-to, with a picture of every screen and ideas for using it, is in the **[user guide](docs/guide.md)**.
 
 ## Install
 
@@ -81,7 +97,7 @@ The planner was tested with Gravel. It should work the same way in Core's Pebble
 
 ## Status
 
-Version 1.0. Every screen has been walked through in the Pebble emulator, and the phone pieces it relies on (sideloading, dictation, the built-in planner page) were proven on a real Pebble Time 2 with Gravel. Real-world use is just starting, so if something feels off, please [open an issue](https://github.com/swarmkind/adhd-coach/issues).
+Version 1.4.1. Every screen has been walked through in the Pebble emulator, and the phone pieces it relies on (sideloading, dictation, the built-in planner page) were proven on a real Pebble Time 2 with Gravel. Real-world use is just starting, so if something feels off, please [open an issue](https://github.com/swarmkind/adhd-coach/issues).
 
 ## Licence
 

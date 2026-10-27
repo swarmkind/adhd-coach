@@ -42,7 +42,7 @@ Lists (Today, voice notes, settings, alarms) also scroll and open with a finger.
 
 ## Home screen
 
-<img src="screenshots/guide/home.png" width="200" alt="Home screen">
+<img src="screenshots/guide/home.png" width="200" alt="Home: the time, the next alarm, what is next and the water count"> <img src="screenshots/guide/home_progress.png" width="200" alt="Home after a glass of water: 1/8, and the next reminder at 10:00"> <img src="screenshots/guide/home_menu.png" width="200" alt="Hold Select on home: Today, Alarms, Exit">
 
 Home is meant to stay on screen all day, as your clock:
 
@@ -85,7 +85,7 @@ Every item has an alert level. **Normal**, **Important** (a short heads-up first
 
 ## When something is due
 
-<img src="screenshots/guide/routine_alert.png" width="200" alt="A routine alert">
+<img src="screenshots/guide/routine_alert.png" width="200" alt="A routine alert: Later, Start, Skip"> <img src="screenshots/guide/reminder_alert.png" width="200" alt="A reminder alert with its goal: Later, Done, Skip"> <img src="screenshots/guide/event_alert.png" width="200" alt="An event warning a week ahead: Later, Got it">
 
 The watch buzzes and the item fills the screen.
 
@@ -103,7 +103,7 @@ If you don't respond, it buzzes once more after about 30 seconds. A task or rout
 
 ## Routines
 
-<img src="screenshots/guide/routine_step.png" width="200" alt="A timed routine step"> <img src="screenshots/guide/routine_done.png" width="200" alt="The routine done screen">
+<img src="screenshots/guide/step_do.png" width="160" alt="A do-it step"> <img src="screenshots/guide/step_timer_wait.png" width="160" alt="A timer step waiting for Select"> <img src="screenshots/guide/step_timer.png" width="160" alt="A timer step counting down"> <img src="screenshots/guide/step_number.png" width="160" alt="A number step"> <img src="screenshots/guide/routine_done.png" width="160" alt="The Done screen, with what is next">
 
 A routine shows one step at a time, with a bar along the top for how far through you are and the next step at the bottom.
 
@@ -132,13 +132,13 @@ Early warnings arrive at 09:00 (change it under "Event reminders at") and read l
 
 ## Today
 
-<img src="screenshots/guide/today.png" width="200" alt="The Today list">
+<img src="screenshots/guide/today.png" width="200" alt="The Today list"> <img src="screenshots/guide/today_menu.png" width="200" alt="Select on an item: Start, Done, Skip today, Later">
 
 Select on home opens Today: everything due today in time order, then your anytime tasks, then any notes you turned into to-dos, then **Voice notes** and **Settings** at the bottom. Select on an item for Start, Done, Skip today, Later, and for tasks, **Focus on this**.
 
 ## Focus
 
-<img src="screenshots/guide/focus_setup.png" width="200" alt="Focus setup"> <img src="screenshots/guide/focus.png" width="200" alt="Focus running">
+<img src="screenshots/guide/focus_setup.png" width="200" alt="Focus setup"> <img src="screenshots/guide/focus.png" width="200" alt="Focus running"> <img src="screenshots/guide/focus_menu.png" width="200" alt="Hold Select in Focus: +5 min, Stop, Lengths">
 
 Up on home opens Focus. The setup screen shows the focus length and the break. Up and Down change the focus length; tap the left or right half of a row to shorten or lengthen it. Select starts.
 
@@ -148,7 +148,7 @@ Start Focus from a task with **Focus on this** and the session carries the task'
 
 ## Voice notes
 
-<img src="screenshots/plan3/03-voice-log.png" width="200" alt="The voice note list"> <img src="screenshots/plan3/04-note-top.png" width="200" alt="A voice note">
+<img src="screenshots/guide/listening.png" width="200" alt="Listening for a voice note"> <img src="screenshots/guide/voice_log.png" width="200" alt="The voice note list"> <img src="screenshots/guide/note.png" width="200" alt="A voice note">
 
 Press Down on home (or hold Down on the watch face, if you set up Quick Launch) and speak. It stops when you stop talking, or press Select. A soft buzz means it's saved; there is no screen to confirm, so you can do it half asleep. Your phone app turns the speech into text.
 
@@ -156,11 +156,15 @@ If the phone is out of reach, the watch still saves a "missed note" with the tim
 
 Find your notes in Today > Voice notes, newest first. Select opens one; Up and Down scroll. Hold Select to rename it (by speaking a new title) or delete it. All notes also appear in the planner's Notes tab, with export.
 
+<img src="screenshots/guide/note_menu.png" width="200" alt="Hold Select on a note: remind me in 30 min, in 1 hour, tomorrow, or pick a day and time"> <img src="screenshots/guide/picker_day.png" width="200" alt="Pick a day: Fri 6 Nov, in 4 days"> <img src="screenshots/guide/picker_time.png" width="200" alt="Then the hour and the minutes, and save">
+
 **Turn a note into a to-do.** Hold Select on a note and pick **In 30 min**, **In 1 hour**, **Tomorrow**, **Pick day and time** or **Add to Today**. Each quick choice shows the time it will remind you. Tomorrow uses the planner's "Event reminders at" time, 09:00 unless you changed it (before 5 a.m. it means this morning). **Pick day and time** sets any moment up to a year ahead: Up and Down change the day, then Select moves to the hour and the minutes (5 at a time), and Select again saves. Under the day it says how far off that is, such as "in 4 days". Back steps back, or cancels from the day. The note's first words become a purple to-do in Today. One with a time buzzes then, like a task: Later puts it off by your "Later for tasks" time, Done clears it, and Skip keeps it in Today without reminding. In Today, Select on it to mark it done, give it a new time, or open the note. You can have six at once. They live on the watch only, so the planner doesn't show them.
+
+<img src="screenshots/guide/today_todo.png" width="200" alt="A note to-do in Today, purple, with its reminder time"> <img src="screenshots/guide/todo_menu.png" width="200" alt="Select on a to-do: Done, a new time, No reminder, Open note"> <img src="screenshots/guide/todo_alert.png" width="200" alt="A to-do reminder: Later, Done, Skip">
 
 ## Alarms
 
-<img src="screenshots/guide/alarms.png" width="200" alt="The alarm list"> <img src="screenshots/guide/alarm.png" width="200" alt="The alarm editor">
+<img src="screenshots/guide/alarms.png" width="180" alt="The alarm list, with the time now"> <img src="screenshots/guide/alarm_new.png" width="180" alt="New alarm: in 5 to 30 minutes, an hour, or Custom"> <img src="screenshots/guide/alarm.png" width="180" alt="The alarm editor"> <img src="screenshots/guide/alarm_ring.png" width="180" alt="An alarm ringing: snooze or stop">
 
 ADHD Coach has its own alarms, so you never need to leave it. Hold Select on home, then **Alarms**. The time now is at the top of the list.
 
@@ -176,6 +180,8 @@ When it rings: **Up or Back snoozes** for 10 minutes, **Down stops**. A tap on t
 Alarms ring through Quiet Time. A sound alarm stays silent if the watch itself is muted; the editor warns you when it is.
 
 ## Settings, sounds and Quiet Time
+
+<img src="screenshots/guide/settings.png" width="200" alt="The settings list">
 
 Settings is at the bottom of Today:
 

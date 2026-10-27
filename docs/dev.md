@@ -31,6 +31,8 @@ To capture launch logs: start `pebble logs` in the background (e.g. `timeout 8 p
 
 Screenshots use the emulator's colour correction by default; add `--no-correction` to get the raw 64-colour palette values.
 
+The guide's screenshots (`docs/screenshots/guide/`, 1.4.1) came from a fresh emulator folder (move `~/Library/Application Support/Pebble SDK/4.33.1/emery` aside, put it back after) with the release build installed at Mon 2 Nov 2026 06:30, so the sample schedule has the morning routine next. Each `pebble screenshot --no-correction` ran with the watch clock held at the scene's time (the fake-clock wrapper from the A/B walk), because a VNC grab dims once the backlight times out. Buttons went in over VNC; the alarm was set for 06:45 to catch it ringing, a note was dictated with `pebble transcribe`, and its to-do set for 08:30. Jumping the clock to 15 s before an alarm or alert shows it at once, since fires due within 30 s are shown at each check.
+
 ## Facts measured on the emulator
 
 - `persist_get_max_size()` = **1048576** bytes (1 MB).
