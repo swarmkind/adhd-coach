@@ -69,19 +69,42 @@ In the phone app, open ADHD Coach's **Settings**. That opens the planner, a page
 
 - **Schedule**: your routines, reminders, tasks and events. Tap one to change it, or a "New" link to add one.
 - **Notes**: your voice notes, to read, rename, delete or export.
-- **History**: numbers you logged (weight, pushups) and how each day went, with export.
+- **History**: numbers you logged (weight, pushups, curls with their weight) and how each day went, with export. A step's count and weight show together, such as 18 × 12.5 kg.
 - **Settings**: Focus lengths and how long "Later" waits.
 
 Tap **Save** when you're done. The changes go to the watch straight away if it's connected, or the next time ADHD Coach opens near your phone.
 
 What you can schedule:
 
-- **Routine**: a set of steps at a time on chosen days. Each step is **Do it** (press done), **Timer** (counts down) or **Number** (log a value).
+- **Routine**: a set of steps at a time on chosen days, or every few days. Each step is **Do it** (press done), **Timer** (counts down) or **Number** (log a value). A step can grow over time, have an alternative, or come up only every few days (see below).
 - **Reminder**: every N minutes between two times, with an optional daily goal. It can ask for a number each time.
-- **Task**: one thing at a time on chosen days, or **Anytime**, which puts it in a do-next list with no set time. A timed task can be "fine to start late by" a few minutes.
+- **Task**: one thing at a time on chosen days or every few days, or **Anytime**, which puts it in a do-next list with no set time. A timed task can be "fine to start late by" a few minutes.
 - **Event**: a date and time with a reminder ladder (see [Events](#events)).
 
 Every item has an alert level. **Normal**, **Important** (a short heads-up first) and **Critical** (the strongest buzz) set how hard it buzzes. **Silent** items show in Today but never buzz.
+
+### Steps that step up
+
+A **Do it** step can count something. Switch on **Quantity** for reps, **Weight** for a load, or both. Each has four boxes:
+
+- **Today**: what you do now.
+- **Increase**: how much it goes up each time.
+- **Every**: how often, in weeks or days.
+- **Stop at**: where it stops climbing. Leave it blank for no limit.
+
+Pushups at 20, with Increase 1 every 1 week, show 20 today and 21 a week later. A **Timer** step steps up its length the same way, in seconds.
+
+Changing **Today** starts again from the new value. Changing **Increase** or **Every** keeps today's value and counts on from it, so nothing jumps. A weight with **Decimals** 0 that you give a half, such as 2.5, switches to 1 decimal to keep it.
+
+### Alternatives
+
+**Add alternative** gives a step a second choice, with its own quantity, weight and step-ups: curls × 8, or shoulder press × 8. On the watch the step shows "or: Shoulder press" at the bottom. Hold Select and pick **Swap to Shoulder press** to do that one instead.
+
+### Every few days
+
+A step's **Show** can be **Every time** or **Every few days** from a date. Red light every 2 days, starting on a Monday, comes up Monday, Wednesday, Friday and so on. On the days between, the routine leaves it out.
+
+Routines and timed tasks have the same choice under **When**: **On these days**, or **Every few days** from a date. An anytime task has it under **Repeat**. If a step can never fall on a day its routine runs, the planner says so under the steps.
 
 ## When something is due
 
@@ -109,11 +132,13 @@ A routine shows one step at a time, with a bar along the top for how far through
 
 - **Do it** step: Select when done.
 - **Timer** step: shows its full time and waits until you're ready. Select starts the countdown, Select again stops it, and again carries on. At zero it buzzes, beeps three times and moves to the next step. Up within 5 seconds goes back to it.
-- **Number** step: Up and Down change the value (hold to go faster), Select saves. It starts at your last value.
+- **Number** step: Up and Down change the value, Select saves. It starts at your last value. Holding a button starts slowly and speeds up after 2 seconds.
+- **Do it** step with a count: shows today's target, such as "× 21" or "8 × 10.0 kg". Up and Down change how many you did, and Select logs it with the weight. Your count stays if you open the Hold Select menu, or leave and come back.
+- A step with an alternative shows "or:" and its name at the bottom. **Swap to** it from the Hold Select menu.
 - **Back skips** the current step.
-- **Hold Select**: Leave, resume later; Finish routine now; Skip routine today.
+- **Hold Select**: Swap to the alternative, if the step has one; Leave, resume later; Finish routine now; Skip routine today.
 
-If you leave part way, home offers to resume it. Timers keep running and buzzing even when you leave the app. At the end, a Done screen tells you what's next.
+Steps that come up every few days appear only on their days, and the bar counts only today's steps. A routine with no steps on a day doesn't come up that day. If you leave part way, home offers to resume it. A change you save in the planner meanwhile shows when you resume, at the same step. Timers keep running and buzzing even when you leave the app. At the end, a Done screen tells you what's next.
 
 ## Reminders and numbers
 
@@ -134,7 +159,7 @@ Early warnings arrive at 09:00 (change it under "Event reminders at") and read l
 
 <img src="screenshots/guide/today.png" width="200" alt="The Today list"> <img src="screenshots/guide/today_menu.png" width="200" alt="Select on an item: Start, Done, Skip today, Later">
 
-Select on home opens Today: everything due today in time order, then your anytime tasks, then any notes you turned into to-dos, then **Voice notes** and **Settings** at the bottom. Select on an item for Start, Done, Skip today, Later, and for tasks, **Focus on this**.
+Select on home opens Today: everything due today in time order (an item that repeats every few days shows only on its days), then your anytime tasks, then any notes you turned into to-dos, then **Voice notes** and **Settings** at the bottom. Select on an item for Start, Done, Skip today, Later, and for tasks, **Focus on this**.
 
 ## Focus
 

@@ -16,6 +16,7 @@
 #include "../config.h"
 #include "../core/cc_fires.h"
 #include "../core/cc_time.h"
+#include "../core/cc_steps.h"
 
 #define BLOCK_Y 82
 #define BLOCK_H 86
@@ -54,7 +55,7 @@ static void compute(void) {
   cc_sec now = clock_now_local();
   s_goal_slot = -1;
   for (int i = 0; i < g_nitems && s_goal_slot < 0; i++)
-    if (g_items[i].kind == CC_REMINDER && g_items[i].goal && ((g_items[i].days >> cc_weekday(cc_day_of(now))) & 1))
+    if (g_items[i].kind == CC_REMINDER && g_items[i].goal && cc_item_on_day(&g_items[i], cc_day_of(now)))
       s_goal_slot = i;
 
   if (g_focus.active) {  // a running Focus outranks a parked routine

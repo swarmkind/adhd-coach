@@ -202,3 +202,59 @@ test('a hello asked for mid-sync runs once the current one ends', function () {
   var hellos = r.sent.filter(function (m) { return m.CMD === C.HELLO; });
   assert.equal(hellos.length, 2);
 });
+
+// Migrating a full 1.4.1 schedule keeps the watch busy for about 4 s after the update.
+function slowWatch(busyMs) {
+  var sent = [], tries = 0, timers = new FakeTimers();
+  var s = new Session(new Store(new H.MemStorage()), function (msg, ok, fail) {
+    tries++;
+    if (timers.t < busyMs) { fail(); return; }
+    sent.push(msg); ok();
+  }, timers, function () {});
+  return { s: s, sent: sent, timers: timers, tries: function () { return tries; } };
+}
+
+test('a watch busy for a few seconds after an update still gets the hello', function () {
+  var w = slowWatch(4000);
+  w.s.hello();
+  for (var i = 0; i < 10; i++) w.timers.advance(1000);
+  assert.equal(w.sent.length, 1);
+  assert.equal(w.sent[0].CMD, C.HELLO);
+  assert.equal(w.s.state, 'up');
+});
+
+test('a watch that never answers is given up on after a few tries', function () {
+  var w = slowWatch(Infinity);
+  w.s.hello();
+  for (var i = 0; i < 20; i++) w.timers.advance(1000);
+  assert.equal(w.s.state, 'idle');
+  assert.equal(w.tries(), 4);
+});
+
+test('a sync that ends while a send waits to retry leaves the next hello alone', function () {
+  var timers = new FakeTimers(), calls = [];
+  var s = new Session(new Store(new H.MemStorage()), function (msg, ok, fail) { calls.push({ msg: msg, ok: ok, fail: fail }); },
+    timers, function () {});
+  s.hello();
+  calls[0].fail();   // refused: the resend waits
+  s.end('test');     // the sync ends meanwhile
+  s.hello();         // a planner save starts the next one at once
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].msg.CMD, C.HELLO);
+  timers.advance(10000);
+  assert.equal(calls.length, 2);  // the old resend is dropped
+  calls[1].ok();
+  assert.equal(s.state, 'up');
+});
+
+test('sends that take long to fail are not cut short by the silence timer', function () {
+  var timers = new FakeTimers(), tries = 0, sent = [];
+  var s = new Session(new Store(new H.MemStorage()), function (msg, ok, fail) {
+    if (++tries < 3) { timers.set(fail, 5000); return; }  // each refusal takes 5 s to arrive
+    sent.push(msg); ok();
+  }, timers, function () {});
+  s.hello();
+  for (var i = 0; i < 30; i++) timers.advance(500);
+  assert.equal(sent.length, 1);
+  assert.equal(s.state, 'up');
+});

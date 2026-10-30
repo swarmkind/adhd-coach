@@ -250,4 +250,30 @@ void test_state(void) {
   CcItemState p3 = st(10); p3.auto_later_used = 1;
   cc_apply(&p3, &P, CC_A_SKIP, cc_at(D, 661), cc_at(D, 540), &cfg);
   T_EQ(p3.auto_later_used, 0);
+
+  // An every-2-days task is never missed on its off day.
+  {
+    CcItem T2 = mk(11, CC_TASK, 540);
+    T2.every_days = 2; T2.every_since = D;
+    CcDay d2; day_of(&d2, D + 1, &T2, 1);
+    T_TRUE(!cc_sweep(&d2, &T2, 1, cc_at(D + 1, 1200), &cfg));
+    T_EQ(d2.s[0].status, CC_ST_NONE);
+    CcDay d3; day_of(&d3, D + 2, &T2, 1);
+    T_TRUE(cc_sweep(&d3, &T2, 1, cc_at(D + 2, 1200), &cfg));
+    T_EQ(d3.s[0].status, CC_ST_MISSED);
+  }
+}
+
+// What the Done screen offers next: the first anytime task still open, on its day.
+void test_anytime_next(void) {
+  CcItem items[3] = { mk(1, CC_TASK, 0), mk(2, CC_TASK, 0), mk(3, CC_ROUTINE, 420) };
+  items[0].flags = CC_F_ANYTIME; items[0].every_days = 2; items[0].every_since = D + 1;  // Laundry, off on D
+  items[1].flags = CC_F_ANYTIME;                                                         // Clean filter, daily
+  CcDay d;
+  day_of(&d, D, items, 3);
+  T_EQ(cc_anytime_next(items, 3, &d), 1);
+  d.s[1].status = CC_ST_DONE;
+  T_EQ(cc_anytime_next(items, 3, &d), -1);
+  day_of(&d, D + 1, items, 3);
+  T_EQ(cc_anytime_next(items, 3, &d), 0);
 }

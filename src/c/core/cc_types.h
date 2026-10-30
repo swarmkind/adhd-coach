@@ -12,13 +12,20 @@ typedef int32_t cc_sec;
 #define CC_NAME_MAX 32     // bytes incl. NUL, UTF-8
 #define CC_UNIT_MAX 6
 #define CC_MAX_ITEMS 40
-#define CC_MAX_STEPS 12
+#define CC_MAX_STEPS 20     // main steps per routine
+#define CC_MAX_ALTS 20      // alternatives per routine, one per step at most
+#define CC_ITEM_STEPS (CC_MAX_STEPS + CC_MAX_ALTS)
+#define CC_POOL_MAX 240     // steps and alternatives across all items
+#define CC_NO_ALT 255
+#define CC_EVERY_MAX 30
+#define CC_LOG_WEIGHT 0x40  // log step byte: the weight of step (byte & 0x3F)
 #define CC_LADDER_MAX 6    // used from Plan 2
 
 typedef enum { CC_ROUTINE, CC_REMINDER, CC_TASK, CC_EVENT } CcKind;
 typedef enum { CC_NORMAL, CC_IMPORTANT, CC_CRITICAL } CcPriority;
 enum { CC_F_SILENT = 1, CC_F_ANYTIME = 2, CC_F_ASK_NUMBER = 4 };
 typedef enum { CC_STEP_MANUAL, CC_STEP_TIMED, CC_STEP_NUMBER } CcStepType;
+enum { CC_SF_QTY = 1, CC_SF_WEIGHT = 2 };  // CcStep.flags, Do it steps only
 
 // Values are fixed point, scaled by 10^decimals (82.4 kg = 824, decimals 1).
 typedef struct {
@@ -28,10 +35,23 @@ typedef struct {
   char unit[CC_UNIT_MAX];
 } CcNumSpec;
 
+// A value that steps up on a schedule: start on day `since`, + inc every `every` days.
 typedef struct {
-  uint8_t type;
-  uint16_t dur_s;
-  CcNumSpec num;
+  int32_t start;   // scaled like its field
+  int32_t cap;     // stop at; 0 = none
+  int32_t since;   // local day number
+  int16_t inc;     // 0 = fixed
+  uint16_t every;  // days between step-ups, >= 1 when inc != 0
+} CcRamp;
+
+typedef struct {
+  uint8_t type, flags;
+  uint8_t alt;          // index of its alternative among the item's steps, or CC_NO_ALT
+  uint8_t show_every;   // 0 = every run; else every N days from show_since
+  int32_t show_since;
+  CcRamp amount;        // timed: length in seconds; Do it with CC_SF_QTY: the quantity
+  CcRamp weight;        // Do it with CC_SF_WEIGHT: scaled by num.decimals, unit num.unit
+  CcNumSpec num;        // number steps; on Do it steps, the weight's decimals and unit
   char name[CC_NAME_MAX];
 } CcStep;
 
@@ -41,6 +61,10 @@ typedef struct {
   uint8_t days;                          // bit0 = Sunday ... bit6 = Saturday
   uint16_t at_min, until_min, every_min; // reminder window: at..until, every N min
   uint8_t goal, grace_min, order, step_count;
+  uint8_t alt_count;                     // steps [0, step_count) are main, then the alternatives
+  uint8_t step_first;                    // pool index (cc_pool_layout), never stored
+  uint8_t every_days;                    // 0 = on `days`; else every N days from every_since
+  int32_t every_since;
   int32_t event_day;                     // CC_EVENT (Plan 2)
   int8_t ladder[CC_LADDER_MAX];
   uint8_t ladder_count;

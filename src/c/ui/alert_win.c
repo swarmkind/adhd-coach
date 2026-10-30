@@ -10,6 +10,7 @@
 #include "../core/cc_time.h"
 #include "../core/cc_sched.h"
 #include "../core/cc_event.h"
+#include "../core/cc_steps.h"
 
 #define QUEUE_MAX 8
 #define REBUZZ_MS 30000
@@ -147,7 +148,7 @@ static void fmt_every(uint16_t every, char *buf, int len) {
   else snprintf(buf, len, "every %d min", every);
 }
 
-// The small line above the title: "10:00 · every hour", "07:00 · 4 steps", "in 10 min · 14:00".
+// The small line above the title: "10:00 · every hour", "07:00 · 4 steps" ("1 step"), "in 10 min · 14:00".
 static void fmt_meta(void) {
   char t[12], e[16];
   CcItemState *st = cc_state_for(g_day, s_item->id);
@@ -179,7 +180,9 @@ static void fmt_meta(void) {
     }
   } else {
     poster_fmt_time(s_item->at_min, t, sizeof(t));
-    if (has_steps()) snprintf(s_meta, sizeof(s_meta), "%s · %d steps", t, s_item->step_count);
+    uint8_t order[CC_MAX_STEPS];
+    int n = has_steps() ? cc_steps_today(s_item, cc_item_steps(s_item), cc_day_of(s_fire.at), order) : 0;
+    if (n) snprintf(s_meta, sizeof(s_meta), "%s · %d step%s", t, n, n == 1 ? "" : "s");
     else snprintf(s_meta, sizeof(s_meta), "%s", t);
   }
 }

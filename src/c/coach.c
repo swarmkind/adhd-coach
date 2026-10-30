@@ -24,10 +24,14 @@ const CcItem *coach_item(uint16_t id) {
 
 void coach_ensure_today(cc_sec now) {
   int32_t today = cc_day_of(now);
-  if (g_run.active && g_run.day != today && !run_win_showing()) {  // parked on an earlier day: that one is over
-    g_run.active = 0;
-    g_run.step_end = CC_NEVER;
-    store_save_run();
+  // Parked on an earlier day, or its routine changed shape under it (a step that wouldn't load): that one is over.
+  if (g_run.active && !run_win_showing()) {
+    CcRun was = g_run;
+    if (!cc_run_alive(&g_run, g_items, g_nitems, g_pool, now)) {
+      g_run.active = 0;
+      g_run.step_end = CC_NEVER;
+    }
+    if (memcmp(&was, &g_run, sizeof(g_run))) store_save_run();
   }
   if (g_day->day == today) return;
   int32_t old = g_day->day;
@@ -68,6 +72,8 @@ void coach_apply(uint16_t id, CcAction a, cc_sec occurrence) {
   wake_rearm();
 }
 
+const CcStep *coach_steps(int slot) { return g_pool + g_items[slot].step_first; }
+
 void coach_start(uint16_t id) {
   int slot = coach_slot(id);
   if (slot < 0) return;
@@ -75,7 +81,7 @@ void coach_start(uint16_t id) {
   coach_apply(id, CC_A_START, 0);
   const CcItem *it = &g_items[slot];
   if (it->kind != CC_ROUTINE || !it->step_count) return;
-  cc_run_start(&g_run, it, g_steps[slot], clock_now_local());
+  cc_run_start(&g_run, it, coach_steps(slot), clock_now_local());
   store_save_run();
   run_win_open();
 }

@@ -7,6 +7,7 @@
 #include "clock.h"
 #include "../coach.h"
 #include "../core/cc_sync.h"
+#include "../core/cc_steps.h"
 #include "../core/cc_codec.h"
 #include "../ui/home_win.h"
 #include "../ui/today_win.h"
@@ -38,9 +39,9 @@ typedef struct {
 // A schedule from the phone, kept apart until all of it is in.
 typedef struct {
   CcItem items[CC_MAX_ITEMS];
-  CcStep steps[CC_MAX_ITEMS][CC_MAX_STEPS];
-  uint16_t mask[CC_MAX_ITEMS];
-  int n;
+  CcStep pool[CC_POOL_MAX];      // each item's steps from its step_first, given as it arrives
+  uint64_t mask[CC_MAX_ITEMS];   // the step records seen, by index
+  int n, used;
   bool bad, have_cfg;
   CcSettings cfg;
   uint32_t cfg_utc;
@@ -136,10 +137,10 @@ static int next_record(Upload *u) {
           u->rec_type = CC_T_ITEM;
           return cc_pack_item(it, u->rec, sizeof(u->rec));
         }
-        if (u->step < it->step_count) {
+        if (u->step < it->step_count + it->alt_count) {
           int j = u->step++;
           u->rec_type = CC_T_STEP;
-          return cc_pack_step_at(it->id, (uint8_t)j, &g_steps[u->item][j], u->rec, sizeof(u->rec));
+          return cc_pack_step_at(it->id, (uint8_t)j, &coach_steps(u->item)[j], u->rec, sizeof(u->rec));
         }
         u->item++;
         u->step = -1;
@@ -337,13 +338,20 @@ static void on_sched(const Tuple *data, bool first) {
   uint8_t type;
   while ((pos = cc_frame_next(buf, len, pos, &type, &rec, &rlen)) > 0) {
     if (type == CC_T_ITEM) {
-      if (st->n >= CC_MAX_ITEMS || !cc_unpack_item(rec, rlen, &st->items[st->n])) st->bad = true;
-      else st->n++;
+      CcItem *it = &st->items[st->n];
+      if (st->n >= CC_MAX_ITEMS || !cc_unpack_item(rec, rlen, it) ||
+          st->used + it->step_count + it->alt_count > CC_POOL_MAX) {
+        st->bad = true;
+      } else {
+        it->step_first = (uint8_t)st->used;
+        st->used += it->step_count + it->alt_count;
+        st->n++;
+      }
     } else if (type == CC_T_STEP) {
       uint16_t item; uint8_t index; CcStep s;
       int k = cc_unpack_step_at(rec, rlen, &item, &index, &s) ? staged_index(item) : -1;
-      if (k < 0 || index >= st->items[k].step_count) st->bad = true;
-      else { st->steps[k][index] = s; st->mask[k] |= (uint16_t)(1u << index); }
+      if (k < 0 || index >= st->items[k].step_count + st->items[k].alt_count) st->bad = true;
+      else { st->pool[st->items[k].step_first + index] = s; st->mask[k] |= 1ull << index; }
     } else if (type == CC_T_SETTINGS) {
       st->have_cfg = cc_unpack_settings_at(rec, rlen, &st->cfg, &st->cfg_utc);
       if (!st->have_cfg) st->bad = true;
@@ -358,26 +366,32 @@ static bool can_commit(void) {
 }
 
 static void commit(Stage *st, uint32_t rev) {
+  int old = g_run.active ? coach_slot(g_run.item_id) : -1;
+  CcStep was;  // the run's current step before the save: an edit to it wins over a changed count
+  if (old >= 0) was = *cc_run_cur(&g_run, coach_steps(old));
   memcpy(g_items, st->items, sizeof(CcItem) * st->n);
-  for (int k = 0; k < st->n; k++) memcpy(g_steps[k], st->steps[k], sizeof(g_steps[k]));
+  memcpy(g_pool, st->pool, sizeof(CcStep) * st->used);
   g_nitems = st->n;
+  cc_pool_layout(g_items, g_nitems);
   if (st->have_cfg) {
     g_cfg = st->cfg;
     s_sync.settings_utc = st->cfg_utc;
     store_save_settings();
   }
   store_save_schedule();
-  const CcItem *run = g_run.active ? coach_item(g_run.item_id) : NULL;
-  if (g_run.active && (!run || run->kind != CC_ROUTINE || run->step_count != g_run.step_count)) {
-    g_run.active = 0;  // its routine went or changed shape
-    g_run.step_end = CC_NEVER;
+  cc_sec now = clock_now_local();
+  int slot = g_run.active ? coach_slot(g_run.item_id) : -1;
+  if (g_run.active) {  // the edits win: the run takes its routine's new steps, or ends if they changed shape
+    if (slot < 0 || !cc_run_refit(&g_run, &g_items[slot], coach_steps(slot), old >= 0 ? &was : NULL, now)) {
+      g_run.active = 0;
+      g_run.step_end = CC_NEVER;
+    }
     store_save_run();
   }
   if (g_focus.label_id && !coach_item(g_focus.label_id)) {
     g_focus.label_id = 0;
     store_save_focus();
   }
-  cc_sec now = clock_now_local();
   coach_ensure_today(now);
   cc_day_prune(g_day, g_items, g_nitems);
   cc_sweep(g_day, g_items, g_nitems, now, &g_cfg);
@@ -394,11 +408,19 @@ static void reply(int32_t arg) {
   send_reply();
 }
 
+// Every record came, and every item's alternatives each belong to one main step.
+static bool stage_ok(const Stage *st, int count) {
+  if (st->bad || st->n != count || !cc_stage_complete(st->items, st->n, st->mask)) return false;
+  for (int i = 0; i < st->n; i++)
+    if (!cc_item_steps_ok(&st->items[i], &st->pool[st->items[i].step_first])) return false;
+  return true;
+}
+
 static void on_sched_end(uint32_t rev, int count) {
   Stage *st = s_stage;
   const char *how;
   int32_t arg;
-  if (!st || st->bad || st->n != count || !cc_stage_complete(st->items, st->n, st->mask)) { how = "invalid"; arg = -1; }
+  if (!st || !stage_ok(st, count)) { how = "invalid"; arg = -1; }
   else if (!can_commit()) { how = "busy"; arg = 0; }
   else { commit(st, rev); how = "applied"; arg = 1; }
   APP_LOG(APP_LOG_LEVEL_INFO, "sync: schedule rev %u %d items %s", (unsigned)rev, st ? st->n : 0, how);

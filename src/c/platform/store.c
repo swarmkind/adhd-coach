@@ -4,34 +4,20 @@
 #include "sample.h"
 #include "../config.h"
 #include "../core/cc_codec.h"
+#include "../core/cc_keys.h"
 #include "../core/cc_ring.h"
+#include "../core/cc_steps.h"
 
-// Persist keys
-#define K_SETTINGS 1
-#define K_SCHEDULE 2
-#define K_DAY 10        // 10..12
-#define K_RUN 20
-#define K_FOCUS 22
-#define K_LAST 30       // 30..33
-#define K_LOG_RING 40
-#define K_HIST_RING 41
-#define K_SYNC 45
-#define K_SOUNDS 46     // watch-only, not synced
-#define K_ALARMS 47     // watch-only, not synced
-#define K_TODOS 48      // watch-only, not synced
-#define K_ITEM 100      // 100..139
-#define K_STEP 1000     // 1000 + slot * 16 + step
-#define K_HIST 4000     // 4000..4089
-#define K_LOG 5000      // 5000..5199
+// Persist keys are in cc_keys.h.
 
 #define DAY_CHUNKS ((CC_MAX_ITEMS + CC_DAY_CHUNK - 1) / CC_DAY_CHUNK)
-#define LAST_MAX (4 * CC_LOG_PER_CHUNK)
-#define LOG_SLOTS 200
-#define HIST_SLOTS 90
+#define LAST_MAX (K_LAST_N * CC_LOG_PER_CHUNK)
+#define LOG_SLOTS K_LOG_N
+#define HIST_SLOTS K_HIST_N
 
 CcItem *g_items;
 int g_nitems;
-CcStep (*g_steps)[CC_MAX_STEPS];
+CcStep *g_pool;
 CcDay *g_day;
 CcRun g_run;
 CcSettings g_cfg = CC_SETTINGS_DEFAULT;
@@ -69,34 +55,75 @@ static void load_ring(uint32_t key, CcRing *r, uint16_t cap) {
   if (r->head >= cap || r->count > cap) r->head = r->count = 0;
 }
 
+static void delete_key(uint32_t key) { if (persist_exists(key)) persist_delete(key); }
+
+// Reads an item's steps into the pool at `first`; a step that won't read ends them there.
+static void load_steps(CcItem *it, int slot, int first, bool v1) {
+  int total = it->step_count + it->alt_count;
+  if (first + total > CC_POOL_MAX) {  // only 1.4.1 storage can hold more than the pool
+    APP_LOG(APP_LOG_LEVEL_WARNING, "%s: steps past %d dropped", it->name, CC_POOL_MAX);
+    total = CC_POOL_MAX - first;
+  }
+  for (int j = 0; j < total; j++) {
+    int len = read_key(v1 ? K_STEP + slot * K_STEP_V1 + j : K_STEP2 + slot * CC_ITEM_STEPS + j);
+    if (len <= 0 || !cc_unpack_step(s_buf, len, &g_pool[first + j])) { total = j; break; }
+  }
+  if (total < it->step_count) it->step_count = (uint8_t)total;
+  it->alt_count = (uint8_t)(total - it->step_count);
+  if (!cc_item_steps_ok(it, &g_pool[first])) {  // an alternative went missing: keep the main steps
+    for (int j = 0; j < it->step_count; j++) g_pool[first + j].alt = CC_NO_ALT;
+    it->alt_count = 0;
+  }
+}
+
 static bool load_schedule(void) {
-  if (read_key(K_SCHEDULE) < 2 || s_buf[0] != CC_CODEC_V1 || s_buf[1] > CC_MAX_ITEMS) return false;
-  int n = s_buf[1], k = 0;
+  if (read_key(K_SCHEDULE) < 2 || (s_buf[0] != CC_CODEC_V1 && s_buf[0] != CC_CODEC_V2) || s_buf[1] > CC_MAX_ITEMS)
+    return false;
+  bool v1 = s_buf[0] == CC_CODEC_V1;
+  int n = s_buf[1], k = 0, used = 0;
   for (int i = 0; i < n; i++) {
     int len = read_key(K_ITEM + i);
     if (len <= 0 || !cc_unpack_item(s_buf, len, &g_items[k])) {
       APP_LOG(APP_LOG_LEVEL_WARNING, "item slot %d unreadable, skipped", i);
       continue;
     }
-    for (int j = 0; j < g_items[k].step_count; j++) {
-      len = read_key(K_STEP + i * 16 + j);
-      if (len <= 0 || !cc_unpack_step(s_buf, len, &g_steps[k][j])) { g_items[k].step_count = (uint8_t)j; break; }
-    }
+    load_steps(&g_items[k], i, used, v1);
+    used += g_items[k].step_count + g_items[k].alt_count;
     k++;
   }
   g_nitems = k;
+  cc_pool_layout(g_items, g_nitems);
+  if (v1) {  // 1.4.1 storage: write the new layout, header last, then drop the old step keys
+    store_save_schedule();
+    for (int i = 0; i < n; i++)
+      for (int j = 0; j < K_STEP_V1; j++) delete_key(K_STEP + i * K_STEP_V1 + j);
+    APP_LOG(APP_LOG_LEVEL_INFO, "schedule: migrated %d items, %d steps", g_nitems, used);
+  }
   return true;
 }
 
+// How many step keys the item stored in `slot` uses, read before it is overwritten.
+static int stored_steps(int slot) {
+  CcItem old;
+  int len = read_key(K_ITEM + slot);
+  return len > 0 && cc_unpack_item(s_buf, len, &old) ? old.step_count + old.alt_count : 0;
+}
+
 void store_save_schedule(void) {
-  for (int i = 0; i < g_nitems; i++) {
-    write_key(K_ITEM + i, cc_pack_item(&g_items[i], s_buf, PERSIST_DATA_MAX_LENGTH));
-    for (int j = 0; j < g_items[i].step_count; j++)
-      write_key(K_STEP + i * 16 + j, cc_pack_step(&g_steps[i][j], s_buf, PERSIST_DATA_MAX_LENGTH));
+  for (int i = 0; i < CC_MAX_ITEMS; i++) {
+    int was = stored_steps(i), total = 0;
+    if (i < g_nitems) {
+      const CcItem *it = &g_items[i];
+      total = it->step_count + it->alt_count;
+      write_key(K_ITEM + i, cc_pack_item(it, s_buf, PERSIST_DATA_MAX_LENGTH));
+      for (int j = 0; j < total; j++)
+        write_key(K_STEP2 + i * CC_ITEM_STEPS + j, cc_pack_step(&g_pool[it->step_first + j], s_buf, PERSIST_DATA_MAX_LENGTH));
+    } else {
+      delete_key(K_ITEM + i);
+    }
+    for (int j = total; j < was; j++) delete_key(K_STEP2 + i * CC_ITEM_STEPS + j);
   }
-  for (int i = g_nitems; i < CC_MAX_ITEMS; i++)
-    if (persist_exists(K_ITEM + i)) persist_delete(K_ITEM + i);
-  s_buf[0] = CC_CODEC_V1;
+  s_buf[0] = CC_CODEC_V2;
   s_buf[1] = (uint8_t)g_nitems;
   write_key(K_SCHEDULE, 2);  // header last: a half-written schedule keeps the old count
 }
@@ -164,17 +191,19 @@ static void save_last(int idx) {
   write_key(K_LAST + k, cc_pack_logs(&s_last[first], n, s_buf, PERSIST_DATA_MAX_LENGTH));
 }
 
-void store_log_number(uint16_t item, uint8_t step, int32_t value) {
+void store_log(uint16_t item, uint8_t step, int32_t value, bool remember) {
   CcLogEntry e = { (int32_t)time(NULL), item, step, value };
 
-  int idx = -1, oldest = 0;
-  for (int i = 0; i < s_nlast && idx < 0; i++) {
-    if (s_last[i].item == item && s_last[i].step == step) idx = i;
-    else if (s_last[i].utc < s_last[oldest].utc) oldest = i;
+  if (remember) {
+    int idx = -1, oldest = 0;
+    for (int i = 0; i < s_nlast && idx < 0; i++) {
+      if (s_last[i].item == item && s_last[i].step == step) idx = i;
+      else if (s_last[i].utc < s_last[oldest].utc) oldest = i;
+    }
+    if (idx < 0) idx = s_nlast < LAST_MAX ? s_nlast++ : oldest;
+    s_last[idx] = e;
+    save_last(idx);
   }
-  if (idx < 0) idx = s_nlast < LAST_MAX ? s_nlast++ : oldest;
-  s_last[idx] = e;
-  save_last(idx);
 
   // Append to the newest log chunk, or start a new one (overwriting the oldest when full).
   CcLogEntry chunk[CC_LOG_PER_CHUNK];
@@ -193,6 +222,17 @@ void store_log_number(uint16_t item, uint8_t step, int32_t value) {
   }
   chunk[n++] = e;
   write_key(K_LOG + slot, cc_pack_logs(chunk, n, s_buf, PERSIST_DATA_MAX_LENGTH));
+}
+
+bool store_unlog(uint16_t item, uint8_t step) {
+  if (!s_logs.count) return false;
+  uint16_t slot = cc_ring_slot(&s_logs, LOG_SLOTS, s_logs.count - 1);
+  CcLogEntry chunk[CC_LOG_PER_CHUNK];
+  int len = read_key(K_LOG + slot);
+  int n = len > 0 ? cc_unpack_logs(s_buf, len, chunk, CC_LOG_PER_CHUNK) : -1;
+  if (n <= 0 || chunk[n - 1].item != item || chunk[n - 1].step != step) return false;
+  write_key(K_LOG + slot, cc_pack_logs(chunk, n - 1, s_buf, PERSIST_DATA_MAX_LENGTH));  // an empty chunk reads as 0
+  return true;
 }
 
 bool store_last_number(uint16_t item, uint8_t step, int32_t *value, int32_t *utc) {
@@ -214,7 +254,8 @@ void store_history_push(const CcOutcome *o, int n, int32_t day) {
 }
 
 void store_load(void) {
-  if (!g_steps) g_steps = calloc(CC_MAX_ITEMS, sizeof(*g_steps));  // ~27 KB; fails only with no heap at all
+  if (!g_pool) g_pool = calloc(CC_POOL_MAX, sizeof(*g_pool));  // ~22 KB; fails only with no heap at all
+  cc_steps_bind(g_pool);
   if (!g_items) g_items = calloc(CC_MAX_ITEMS, sizeof(*g_items));
   if (!g_day) g_day = calloc(1, sizeof(*g_day));
   if (!g_todos) g_todos = calloc(1, sizeof(*g_todos));

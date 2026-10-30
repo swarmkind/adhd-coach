@@ -15,6 +15,7 @@
 #include "../core/cc_time.h"
 #include "../core/cc_event.h"
 #include "../core/cc_sched.h"
+#include "../core/cc_steps.h"
 
 #define ROW_H 52
 #define TEXT_X 12
@@ -45,8 +46,7 @@ enum { T_DONE, T_AT, T_NONE = T_AT + VOICE_TODO_TIMES, T_OPEN, T_PICK };
 // An event shows on its own day and on each day it has a rung.
 static bool today_has(const CcItem *it, int32_t day) {
   if (it->kind == CC_EVENT) return it->event_day == day || cc_event_first_rung_on(it, day, &g_cfg);
-  if (it->flags & CC_F_ANYTIME) return true;
-  return (it->days >> cc_weekday(day)) & 1;
+  return cc_item_on_day(it, day);
 }
 
 // Timed items by time (an event by its rung, or its own time on the day), anytime tasks

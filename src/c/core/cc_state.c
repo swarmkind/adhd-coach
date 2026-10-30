@@ -2,6 +2,7 @@
 #include "cc_sched.h"
 #include "cc_time.h"
 #include "cc_event.h"
+#include "cc_steps.h"
 #include "cc_fires.h"
 #include <string.h>
 
@@ -87,7 +88,7 @@ static bool miss(CcItemState *s, cc_sec slot) {
 
 static bool sweep_one(CcItemState *s, const CcItem *it, int32_t day, cc_sec lo, const CcSettings *cfg) {
   if (s->status != CC_ST_NONE || (it->flags & (CC_F_SILENT | CC_F_ANYTIME))) return false;
-  if (it->kind != CC_EVENT && !((it->days >> cc_weekday(day)) & 1)) return false;
+  if (it->kind != CC_EVENT && !cc_item_on_day(it, day)) return false;
   if (it->kind == CC_ROUTINE || it->kind == CC_TASK) {
     cc_sec due = s->later_until ? s->later_until : cc_at(day, it->at_min);
     if (due >= lo) return false;
@@ -139,4 +140,14 @@ int cc_rollover(CcDay *d, const CcItem items[], int n, int32_t today, CcOutcome 
   d->n = (uint8_t)n;
   for (int i = 0; i < n; i++) d->s[i].id = items[i].id;
   return w;
+}
+
+int cc_anytime_next(const CcItem items[], int n, CcDay *d) {
+  for (int i = 0; i < n; i++) {
+    const CcItem *it = &items[i];
+    CcItemState *st = cc_state_for(d, it->id);
+    if (it->kind == CC_TASK && (it->flags & CC_F_ANYTIME) && cc_item_on_day(it, d->day) && (!st || st->status == CC_ST_NONE))
+      return i;
+  }
+  return -1;
 }

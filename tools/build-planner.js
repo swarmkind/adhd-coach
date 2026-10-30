@@ -49,6 +49,10 @@ function sample() {
   for (var i = 9; i >= 0; i--) {
     logs.push({ t: now - i * 86400 - 3600, item: 1, step: 2, v: 824 - i * 2 + (i % 3), label: 'Morning routine · Weight', unit: 'kg', dec: 1 });
     if (i % 2) logs.push({ t: now - i * 86400, item: 3, step: 255, v: 10 + i, label: '10 pushups', unit: 'reps', dec: 0 });
+    if (i % 3 === 0) {  // curls: a quantity and its weight, logged together
+      logs.push({ t: now - i * 86400 - 3000, item: 1, step: 4, v: 18 - i, label: 'Morning routine · Curls', unit: '', dec: 0 });
+      logs.push({ t: now - i * 86400 - 2999, item: 1, step: 0x44, v: 125, label: 'Morning routine · Curls', unit: 'kg', dec: 1 });
+    }
   }
   var hist = [];
   for (var d = 7; d >= 1; d--) {

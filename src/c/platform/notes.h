@@ -2,9 +2,10 @@
 // Voice notes in persist slots. The slot index is read on first use, so a wakeup launch that
 // never touches notes reads nothing.
 #include "../core/cc_note.h"
+#include "../core/cc_keys.h"
 
 #define NOTES_TOMB_MAX 60
-#define NOTES_SLOTS 100
+#define NOTES_SLOTS K_NOTE_SLOTS
 
 int notes_count(void);
 int notes_list(CcNote *out, int max);                  // newest first

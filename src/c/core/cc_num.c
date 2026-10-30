@@ -22,7 +22,7 @@ int cc_num_format(int32_t v, uint8_t decimals, char *buf, int len) {
 }
 
 int32_t cc_num_step(int32_t v, const CcNumSpec *s, int dir, uint16_t repeats) {
-  int64_t mult = repeats < 10 ? 1 : repeats < 30 ? 5 : 10;
+  int64_t mult = repeats < 10 ? 1 : repeats < 20 ? 2 : repeats < 30 ? 5 : 10;
   int64_t x = (int64_t)v + (dir > 0 ? 1 : dir < 0 ? -1 : 0) * mult * s->step;
   if (x < s->min) x = s->min;
   if (x > s->max) x = s->max;

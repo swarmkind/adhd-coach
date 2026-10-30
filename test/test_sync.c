@@ -91,12 +91,16 @@ static void test_prune_and_stage(void) {
   T_EQ(d.n, 2); T_EQ(d.s[0].id, 1); T_EQ(d.s[1].id, 3); T_EQ(d.s[1].count, 5);
   T_EQ(cc_day_prune(&d, items, 2), 0);
 
-  uint16_t mask[2] = { 0x7, 0 };
+  uint64_t mask[2] = { 0x7, 0 };
   items[0].step_count = 4; items[1].step_count = 0;
   T_TRUE(!cc_stage_complete(items, 2, mask));  // step 3 of item 0 never came
   mask[0] = 0xF;
   T_TRUE(cc_stage_complete(items, 2, mask));
   items[1].step_count = 12; mask[1] = 0xFFF;
+  T_TRUE(cc_stage_complete(items, 2, mask));
+  items[1].step_count = 20; items[1].alt_count = 20; mask[1] = 0xFFFFFFFFFull;  // 36 of 40
+  T_TRUE(!cc_stage_complete(items, 2, mask));
+  mask[1] = 0xFFFFFFFFFFull;
   T_TRUE(cc_stage_complete(items, 2, mask));
 }
 

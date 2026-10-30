@@ -30,16 +30,16 @@ test('validate reports what the watch would refuse', function () {
 
   var rt = M.newItem(M.KIND.ROUTINE, 2, 0);
   rt.name = 'Morning';
-  for (var i = 0; i < 13; i++) rt.steps.push(M.newStep(M.STEP.MANUAL));
+  for (var i = 0; i < 21; i++) rt.steps.push(M.newStep(M.STEP.MANUAL, 0));
   rt.steps.forEach(function (s, j) { s.name = 'Step ' + j; });
-  assert.ok(M.validate(rt).indexOf('At most 12 steps.') >= 0);
+  assert.ok(M.validate(rt).indexOf('At most 20 steps.') >= 0);
   rt.steps = [M.newStep(M.STEP.NUMBER)];
   rt.steps[0].name = 'Weight';
   rt.steps[0].num = { step: 1, min: 900, max: 300, decimals: 1, unit: 'kg' };
   assert.ok(M.validate(rt).indexOf('Step 1: the lowest value is above the highest.') >= 0);
   rt.steps = [M.newStep(M.STEP.TIMED)];
   rt.steps[0].name = 'Plank';
-  rt.steps[0].dur = 0;
+  rt.steps[0].amount.start = 0;
   assert.ok(M.validate(rt).indexOf('Step 1 needs a length.') >= 0);
   rt.steps = [M.newStep(M.STEP.MANUAL)];
   assert.ok(M.validate(rt).indexOf('Step 1 needs a name.') >= 0);
@@ -129,4 +129,202 @@ test('times read in the offset in force at that moment, not today’s', function
   } finally {
     if (was === undefined) delete process.env.TZ; else process.env.TZ = was;
   }
+});
+
+var D = 20749;  // a Friday, as in the C tests
+
+test('ramps step up like the watch, and rebase keeps today\'s value', function () {
+  var q = { start: 20, cap: 0, since: D, inc: 1, every: 7 };
+  assert.equal(M.valueAt(q, D - 3), 20);
+  assert.equal(M.valueAt(q, D + 70), 30);
+  assert.equal(M.valueAt({ start: 20, cap: 25, since: D, inc: 1, every: 7 }, D + 70), 25);
+  var r = M.rebase(q, 2, 7, D + 70); assert.equal(M.valueAt(r, D + 70), 30); assert.equal(M.valueAt(r, D + 77), 32);
+  var p = M.rebase(q, 1, 14, D + 73); assert.equal(M.valueAt(p, D + 73), 30); assert.equal(M.valueAt(p, D + 84), 31);
+  var f = M.rebase(q, 1, 2, D + 76); assert.equal(M.valueAt(f, D + 76), 30);  // a shorter period never jumps today
+  assert.equal(M.valueAt(f, D + 77), 31);
+  var s = M.setToday(q, 25, D + 73); assert.deepEqual([s.start, s.since], [25, D + 73]);
+  assert.equal(q.start, 20);  // the ramp passed in is left alone
+});
+
+test('new steps carry ramps, a rhythm and no alternative', function () {
+  var t = M.newStep(M.STEP.TIMED, D);
+  assert.deepEqual(t.amount, { start: 60, cap: 0, since: D, inc: 0, every: 0 });
+  assert.deepEqual(t.weight, { start: 0, cap: 0, since: D, inc: 0, every: 0 });
+  assert.deepEqual(t.show, { every: 0, since: D });
+  assert.equal(t.alt, null);
+  assert.equal(t.flags, 0);
+  assert.equal(M.newStep(M.STEP.MANUAL, D).amount.start, 0);
+  assert.deepEqual([M.MAX_STEPS, M.POOL_MAX, M.EVERY_MAX], [20, 240, 30]);
+  assert.deepEqual(M.SFLAG, { QTY: 1, WEIGHT: 2 });
+});
+
+test('validate checks step-ups, rhythms and alternatives', function () {
+  var rt = M.newItem(M.KIND.ROUTINE, 2, D);
+  rt.name = 'Workout';
+  var c = M.newStep(M.STEP.MANUAL, D);
+  c.name = 'Curls'; c.flags = M.SFLAG.QTY | M.SFLAG.WEIGHT;
+  c.amount.start = 8; c.weight.start = 100;
+  rt.steps = [c];
+  assert.deepEqual(M.validate(rt), []);
+  function has(msg) { assert.ok(M.validate(rt).indexOf(msg) >= 0, msg + ' in ' + JSON.stringify(M.validate(rt))); }
+  c.amount.inc = -1; c.amount.every = 7; has('Step 1: the increase must be above zero.');
+  c.amount.inc = 1; c.amount.every = 0; has('Step 1: step up every 1 day or more.');
+  c.amount.every = 7; c.weight.cap = 50; has('Step 1: stop at is below today\'s value.');
+  c.weight.cap = 0; c.show.every = 31; has('Step 1: every 2 to 30 days.');
+  c.show.every = 1; has('Step 1: every 2 to 30 days.');
+  c.show.every = 2; c.alt = M.newStep(M.STEP.MANUAL, D); delete c.alt.alt; delete c.alt.show;
+  has('Step 1\'s alternative needs a name.');
+  c.alt.name = 'Shoulder press';
+  assert.deepEqual(M.validate(rt), []);
+  rt.repeat = { every: 31, since: D }; has('Repeat every 2 to 30 days.');
+  rt.repeat.every = 3; assert.deepEqual(M.validate(rt), []);
+});
+
+test('the pool holds 240 steps across the schedule, alternatives included', function () {
+  function routine(n, alts) {
+    var it = M.newItem(M.KIND.ROUTINE, 1, D);
+    for (var i = 0; i < n; i++) {
+      var s = M.newStep(M.STEP.MANUAL, D);
+      if (i < alts) s.alt = M.newStep(M.STEP.MANUAL, D);
+      it.steps.push(s);
+    }
+    return it;
+  }
+  var items = [];
+  for (var i = 0; i < 6; i++) items.push(routine(20, 20));  // 240
+  assert.deepEqual(M.scheduleErrors(items), []);
+  items.push(routine(1, 0));
+  assert.deepEqual(M.scheduleErrors(items), ['At most 240 steps across all routines and tasks, alternatives included.']);
+});
+
+test('warnings name steps whose rhythm never meets the routine', function () {
+  var rt = M.newItem(M.KIND.ROUTINE, 2, D);
+  rt.days = 0x3E;  // Mon-Fri
+  var s = M.newStep(M.STEP.MANUAL, D);
+  s.name = 'Red light';
+  rt.steps = [M.newStep(M.STEP.MANUAL, D), s];
+  s.show = { every: 7, since: D + 1 };  // Saturdays
+  assert.deepEqual(M.warnings(rt), ['Step 2 never falls on a day this routine runs.']);
+  s.show = { every: 14, since: D };  // Fridays
+  assert.deepEqual(M.warnings(rt), []);
+  s.show = { every: 2, since: D + 1 };
+  assert.deepEqual(M.warnings(rt), []);
+  rt.repeat = { every: 4, since: D };
+  assert.deepEqual(M.warnings(rt), ['Step 2 never falls on a day this routine runs.']);
+  s.show.since = D + 2;
+  assert.deepEqual(M.warnings(rt), []);
+});
+
+test('upgrade turns a 1.4.1 item into the 1.5.0 shape, once', function () {
+  var old = { id: 1, kind: 0, days: 0x3E, name: 'Morning', steps: [
+    { type: 1, dur: 90, num: { step: 0, min: 0, max: 0, decimals: 0, unit: '' }, name: 'Plank' }] };
+  var up = M.upgrade(old);
+  assert.equal(up.steps[0].amount.start, 90);
+  assert.ok(!('dur' in up.steps[0]));
+  assert.deepEqual(up.repeat, { every: 0, since: 0 });
+  assert.deepEqual(up.steps[0].show, { every: 0, since: 0 });
+  assert.equal(up.steps[0].alt, null);
+  assert.deepEqual(M.upgrade(up), up);
+  assert.equal(old.steps[0].dur, 90);  // the stored item is left alone
+});
+
+test('a weight joins the quantity logged with it', function () {
+  var out = M.pairWeights([{ t: 100, item: 5, step: 0, v: 18, dec: 0, unit: '' },
+    { t: 101, item: 5, step: 0x40, v: 125, dec: 1, unit: 'kg' }]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].text, '18 × 12.5 kg');
+  assert.equal(out[0].weight.v, 125);  // History's headline shows the weight beside the count
+  out = M.pairWeights([{ t: 100, item: 5, step: 0, v: 18, dec: 0, unit: '' },
+    { t: 110, item: 5, step: 0x40, v: 125, dec: 1, unit: 'kg' }, { t: 120, item: 3, step: 255, v: 12, dec: 0, unit: 'reps' }]);
+  assert.deepEqual(out.map(function (e) { return e.text; }), ['18', '12.5 kg', '12 reps']);
+});
+
+
+test('a fixed value that starts to step up counts a full period from today', function () {
+  var r = M.rebase({ start: 20, cap: 0, since: D - 100, inc: 0, every: 0 }, 1, 7, D);
+  assert.equal(M.valueAt(r, D), 20);
+  assert.equal(M.valueAt(r, D + 6), 20);
+  assert.equal(M.valueAt(r, D + 7), 21);
+});
+
+test('an every-N-days item needs no weekdays', function () {
+  var t = M.newItem(M.KIND.TASK, 4, D);
+  t.name = 'Water the plants'; t.flags = 0; t.days = 0;
+  assert.ok(M.validate(t).indexOf('Pick at least one day.') >= 0);
+  t.repeat = { every: 3, since: D };
+  assert.deepEqual(M.validate(t), []);
+});
+
+test('a step-up left behind on a switched-off field never reaches the watch', function () {
+  var it = M.newItem(M.KIND.ROUTINE, 1, D), s = M.newStep(M.STEP.MANUAL, D);
+  it.name = 'Arms'; s.name = 'Curls';
+  s.amount = { start: 8, cap: 0, since: D, inc: 1, every: 0 };  // an Increase, Every cleared, then Quantity off
+  it.steps = [s];
+  var c = M.clean(it);
+  assert.deepEqual(M.validate(c), []);
+  var r = c.steps[0].amount;
+  assert.ok(!r.inc || r.every, 'the watch refuses an increase with no period');  // cc_codec.c rramp
+});
+
+test('an item that repeats every few days says so, not its leftover weekdays', function () {
+  var r = M.newItem(M.KIND.ROUTINE, 1, D);
+  r.repeat = { every: 3, since: D };
+  assert.equal(M.whenText(r), 'every 3 days');
+  assert.ok(M.summary(r).indexOf('every 3 days') === 0);
+  var t = M.newItem(M.KIND.TASK, 2, D);  // anytime by default
+  t.repeat = { every: 2, since: D };
+  assert.equal(M.whenText(t), 'anytime, every 2 days');
+  assert.equal(M.whenText(M.newItem(M.KIND.TASK, 3, D)), 'anytime');
+  assert.equal(M.whenText(M.newItem(M.KIND.ROUTINE, 4, D)), 'Mon to Fri');
+});
+
+test('History keeps exercises apart when a routine\'s steps move', function () {
+  var logs = [  // oldest first, as the phone keeps them
+    { t: 100, item: 5, step: 2, v: 8, dec: 0, unit: '', label: 'Arms · Shoulder press' },
+    { t: 200, item: 5, step: 2, v: 10, dec: 0, unit: '', label: 'Arms · Rows' },  // index 2 after a step was added
+    { t: 201, item: 5, step: 0x42, v: 125, dec: 1, unit: 'kg', label: 'Arms · Rows' }];
+  var s = M.series(logs);
+  assert.deepEqual(s.map(function (g) { return g[0].label; }), ['Arms · Rows', 'Arms · Shoulder press']);
+  assert.equal(M.pairWeights(s[0])[0].text, '10 × 12.5 kg');
+  assert.equal(s[1].length, 1);
+});
+
+test('raising Stop at keeps today\'s value', function () {
+  var held = { start: 20, cap: 25, since: D - 70, inc: 1, every: 7 };  // 30 uncapped, held at 25
+  var r = M.setCap(held, 40, D);
+  assert.equal(M.valueAt(r, D), 25);
+  assert.equal(M.valueAt(r, D + 7), 26);
+  var climbing = { start: 20, cap: 0, since: D - 14, inc: 1, every: 7 };  // 22 today
+  r = M.setCap(climbing, 40, D);
+  assert.equal(M.valueAt(r, D), 22);
+  assert.equal(M.valueAt(r, D + 7), 23);
+  assert.equal(r.cap, 40);
+});
+
+test('Stop at below today\'s value is refused, and one reached on its own is not', function () {
+  var it = M.newItem(M.KIND.ROUTINE, 1, D), s = M.newStep(M.STEP.MANUAL, D);
+  it.name = 'Arms'; s.name = 'Pushups'; s.flags = M.SFLAG.QTY; it.steps = [s];
+  s.amount = M.setCap({ start: 20, cap: 0, since: D - 70, inc: 1, every: 7 }, 25, D);  // typed while at 30
+  assert.ok(M.validate(it).some(function (m) { return /below today/.test(m); }));
+  s.amount = { start: 20, cap: 25, since: D - 70, inc: 1, every: 7 };  // climbed to its Stop at since it was set
+  assert.deepEqual(M.validate(it), []);
+});
+
+test('a typed value with more decimals than its number shows raises the decimals instead of losing the half', function () {
+  assert.equal(M.decimalsFor('2.5'), 1);
+  assert.equal(M.decimalsFor('2.50'), 1);
+  assert.equal(M.decimalsFor('10'), 0);
+  assert.equal(M.decimalsFor('10.00'), 0);
+  assert.equal(M.decimalsFor('0.125'), 2);  // the planner offers 0 to 2
+  var spec = { step: 1, min: 0, max: 500, decimals: 0, unit: 'kg' }, w = { start: 10, cap: 25, since: 5, inc: 2, every: 7 };
+  M.setDecimals(spec, w, 1);
+  assert.deepEqual(spec, { step: 10, min: 0, max: 5000, decimals: 1, unit: 'kg' });
+  assert.deepEqual(w, { start: 100, cap: 250, since: 5, inc: 20, every: 7 });
+  assert.equal(M.toScaled('2.5', spec.decimals), 25);
+});
+
+test('text that is not a number never changes the decimals', function () {
+  assert.equal(M.decimalsFor('1..5'), 0);
+  assert.equal(M.decimalsFor('abc.5'), 0);
+  assert.equal(M.decimalsFor('.5'), 1);
 });

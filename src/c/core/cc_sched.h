@@ -5,7 +5,7 @@
 // How late an alert may still fire: the larger of the catch-up window and the item's grace.
 cc_sec cc_catchup_s(const CcItem *it, const CcSettings *cfg);
 
-// Soonest time >= now - catch-up at which the item wants an alert, up to 7 days ahead
+// Soonest time >= now - catch-up at which the item wants an alert, up to 31 days ahead
 // (events: their next rung, however far). `today` is the state for cc_day_of(now)
 // (NULL = fresh); later days count as fresh. CC_NEVER for silent and anytime items.
 cc_sec cc_next_due(const CcItem *it, const CcItemState *today, cc_sec now, const CcSettings *cfg);

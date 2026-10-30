@@ -54,9 +54,10 @@ static void rnum(R *r, CcNumSpec *n) {
   n->decimals = (uint8_t)r8(r); rstr(r, n->unit, CC_UNIT_MAX);
 }
 
+// V2 items add alternatives and the every-N-days rhythm after the name; V1 (1.4.1) had neither.
 int cc_pack_item(const CcItem *it, uint8_t *buf, int len) {
   W w = { buf, len, 0, true };
-  w8(&w, CC_CODEC_V1);
+  w8(&w, CC_CODEC_V2);
   w16(&w, it->id); w8(&w, it->kind); w8(&w, it->priority); w8(&w, it->flags); w8(&w, it->days);
   w16(&w, it->at_min); w16(&w, it->until_min); w16(&w, it->every_min);
   w8(&w, it->goal); w8(&w, it->grace_min); w8(&w, it->order); w8(&w, it->step_count);
@@ -65,12 +66,14 @@ int cc_pack_item(const CcItem *it, uint8_t *buf, int len) {
   for (int i = 0; i < CC_LADDER_MAX; i++) w8(&w, (uint8_t)it->ladder[i]);
   wnum(&w, &it->num);
   wstr(&w, it->name, CC_NAME_MAX);
+  w8(&w, it->alt_count); w8(&w, it->every_days); w32(&w, (uint32_t)it->every_since);
   return w.ok ? w.pos : -1;
 }
 
 bool cc_unpack_item(const uint8_t *buf, int len, CcItem *it) {
   R r = { buf, len, 0, true };
-  if (!rversion(&r)) return false;
+  uint32_t ver = r8(&r);
+  if (!r.ok || (ver != CC_CODEC_V1 && ver != CC_CODEC_V2)) return false;
   memset(it, 0, sizeof(*it));
   it->id = (uint16_t)r16(&r); it->kind = (uint8_t)r8(&r); it->priority = (uint8_t)r8(&r);
   it->flags = (uint8_t)r8(&r); it->days = (uint8_t)r8(&r);
@@ -82,26 +85,55 @@ bool cc_unpack_item(const uint8_t *buf, int len, CcItem *it) {
   for (int i = 0; i < CC_LADDER_MAX; i++) it->ladder[i] = (int8_t)r8(&r);
   rnum(&r, &it->num);
   rstr(&r, it->name, CC_NAME_MAX);
+  if (ver == CC_CODEC_V2) {
+    it->alt_count = (uint8_t)r8(&r); it->every_days = (uint8_t)r8(&r); it->every_since = (int32_t)r32(&r);
+  }
   if (!r.ok) return false;
   if (it->step_count > CC_MAX_STEPS || it->ladder_count > CC_LADDER_MAX) return false;
+  if (it->alt_count > it->step_count || it->every_days > CC_EVERY_MAX) return false;
   if (it->kind == CC_REMINDER && (it->until_min < it->at_min || it->every_min == 0)) return false;
   return true;
 }
 
+static void wramp(W *w, const CcRamp *a) {
+  w32(w, (uint32_t)a->start); w32(w, (uint32_t)a->cap); w32(w, (uint32_t)a->since);
+  w16(w, (uint16_t)a->inc); w16(w, a->every);
+}
+static bool rramp(R *r, CcRamp *a) {
+  a->start = (int32_t)r32(r); a->cap = (int32_t)r32(r); a->since = (int32_t)r32(r);
+  a->inc = (int16_t)r16(r); a->every = (uint16_t)r16(r);
+  return !a->inc || a->every;
+}
+
+// V2 steps carry the step-ups, the rhythm and the alternative. A V1 step (1.4.1) had a length only.
 int cc_pack_step(const CcStep *s, uint8_t *buf, int len) {
   W w = { buf, len, 0, true };
-  w8(&w, CC_CODEC_V1);
-  w8(&w, s->type); w16(&w, s->dur_s); wnum(&w, &s->num); wstr(&w, s->name, CC_NAME_MAX);
+  w8(&w, CC_CODEC_V2);
+  w8(&w, s->type); w8(&w, s->flags); w8(&w, s->alt); w8(&w, s->show_every); w32(&w, (uint32_t)s->show_since);
+  wramp(&w, &s->amount); wramp(&w, &s->weight);
+  wnum(&w, &s->num); wstr(&w, s->name, CC_NAME_MAX);
   return w.ok ? w.pos : -1;
 }
 
 bool cc_unpack_step(const uint8_t *buf, int len, CcStep *s) {
   R r = { buf, len, 0, true };
-  if (!rversion(&r)) return false;
+  uint32_t ver = r8(&r);
+  if (!r.ok || (ver != CC_CODEC_V1 && ver != CC_CODEC_V2)) return false;
   memset(s, 0, sizeof(*s));
-  s->type = (uint8_t)r8(&r); s->dur_s = (uint16_t)r16(&r); rnum(&r, &s->num);
+  s->type = (uint8_t)r8(&r);
+  bool ok = true;
+  if (ver == CC_CODEC_V1) {
+    s->amount.start = (int32_t)r16(&r);
+    s->alt = CC_NO_ALT;
+  } else {
+    s->flags = (uint8_t)r8(&r); s->alt = (uint8_t)r8(&r);
+    s->show_every = (uint8_t)r8(&r); s->show_since = (int32_t)r32(&r);
+    ok = rramp(&r, &s->amount);
+    ok = rramp(&r, &s->weight) && ok;
+  }
+  rnum(&r, &s->num);
   rstr(&r, s->name, CC_NAME_MAX);
-  return r.ok && s->type <= CC_STEP_NUMBER;
+  return r.ok && ok && s->type <= CC_STEP_NUMBER && s->show_every <= CC_EVERY_MAX;
 }
 
 int cc_pack_settings(const CcSettings *c, uint8_t *buf, int len) {
@@ -193,24 +225,35 @@ int cc_unpack_logs(const uint8_t *buf, int len, CcLogEntry *out, int max) {
   return r.ok ? n : -1;
 }
 
+// V2 adds today's step order, the current step's changed count and which steps are swapped; a V1 run (1.4.1) ran every step in order.
 int cc_pack_run(const CcRun *r, uint8_t *buf, int len) {
   W w = { buf, len, 0, true };
-  w8(&w, CC_CODEC_V1);
+  w8(&w, CC_CODEC_V2);
   w16(&w, r->item_id); w32(&w, (uint32_t)r->day);
   w8(&w, r->active); w8(&w, r->step); w8(&w, r->step_count); w8(&w, r->paused);
   w32(&w, (uint32_t)r->step_end); w32(&w, (uint32_t)r->advanced_at); w32(&w, (uint32_t)r->paused_left);
+  for (int i = 0; i < r->step_count && i < CC_MAX_STEPS; i++) w8(&w, r->order[i]);
+  w32(&w, (uint32_t)r->value); w32(&w, r->swapped);
   return w.ok ? w.pos : -1;
 }
 
 bool cc_unpack_run(const uint8_t *buf, int len, CcRun *r) {
   R rd = { buf, len, 0, true };
-  if (!rversion(&rd)) return false;
+  uint32_t ver = r8(&rd);
+  if (!rd.ok || (ver != CC_CODEC_V1 && ver != CC_CODEC_V2)) return false;
   memset(r, 0, sizeof(*r));
   r->item_id = (uint16_t)r16(&rd); r->day = (int32_t)r32(&rd);
   r->active = (uint8_t)r8(&rd); r->step = (uint8_t)r8(&rd);
   r->step_count = (uint8_t)r8(&rd); r->paused = (uint8_t)r8(&rd);
   r->step_end = (cc_sec)r32(&rd); r->advanced_at = (cc_sec)r32(&rd); r->paused_left = (int32_t)r32(&rd);
-  return rd.ok && r->step_count <= CC_MAX_STEPS && (!r->active || r->step < r->step_count);
+  if (!rd.ok || r->step_count > CC_MAX_STEPS) return false;
+  for (int i = 0; i < r->step_count; i++) {
+    r->order[i] = ver == CC_CODEC_V2 ? (uint8_t)r8(&rd) : (uint8_t)i;
+    if (r->order[i] >= CC_ITEM_STEPS) return false;
+  }
+  r->value = ver == CC_CODEC_V2 ? (int32_t)r32(&rd) : CC_RUN_PLAN;
+  if (ver == CC_CODEC_V2) r->swapped = r32(&rd);
+  return rd.ok && (!r->active || r->step < r->step_count);
 }
 
 int cc_pack_focus(const CcFocus *f, uint8_t *buf, int len) {

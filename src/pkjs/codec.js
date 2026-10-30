@@ -59,22 +59,25 @@ function writeNum(w, n) {
 }
 function readNum(r) { return { step: r.i16(), min: r.i32(), max: r.i32(), decimals: r.u8(), unit: r.str() }; }
 
+// V2 items add the alternatives' count and the every-N-days rhythm after the name.
 function packItem(it) {
-  var w = new Writer(), ladder = it.ladder || [];
-  w.u8(V1).u16(it.id).u8(it.kind).u8(it.priority || 0).u8(it.flags || 0).u8(it.days || 0);
+  var w = new Writer(), ladder = it.ladder || [], rep = it.repeat || {};
+  var alts = it.steps ? it.steps.filter(function (s) { return s.alt; }).length : (it.altCount || 0);
+  w.u8(V2).u16(it.id).u8(it.kind).u8(it.priority || 0).u8(it.flags || 0).u8(it.days || 0);
   w.u16(it.at || 0).u16(it.until || 0).u16(it.every || 0);
   w.u8(it.goal || 0).u8(it.grace || 0).u8(it.order || 0).u8(it.steps ? it.steps.length : (it.stepCount || 0));
   w.u32(it.eventDay || 0).u8(ladder.length);
   for (var i = 0; i < 6; i++) w.u8(i < ladder.length ? ladder[i] : 0);
   writeNum(w, it.num);
   w.str(it.name, NAME_MAX);
+  w.u8(alts).u8(rep.every || 0).u32(rep.since || 0);
   return w.b;
 }
 
-// The item's steps arrive in their own records: `stepCount` says how many to expect.
+// The item's steps arrive in their own records: `stepCount` main steps, then `altCount` alternatives.
 function unpackItem(b) {
-  var r = new Reader(b);
-  r.version(V1);
+  var r = new Reader(b), ver = r.u8();
+  if (ver !== V1 && ver !== V2) throw new Error('bad version');
   var it = { id: r.u16(), kind: r.u8(), priority: r.u8(), flags: r.u8(), days: r.u8(), at: r.u16(), until: r.u16(),
     every: r.u16(), goal: r.u8(), grace: r.u8(), order: r.u8(), stepCount: r.u8(), eventDay: r.i32() };
   var n = r.u8(), ladder = [];
@@ -82,12 +85,26 @@ function unpackItem(b) {
   it.ladder = ladder;
   it.num = readNum(r);
   it.name = r.str();
+  it.altCount = ver === V2 ? r.u8() : 0;
+  it.repeat = ver === V2 ? { every: r.u8(), since: r.i32() } : { every: 0, since: 0 };
   return it;
 }
 
-function packStepAt(item, index, s) {
-  var w = new Writer();
-  w.u16(item).u8(index).u8(V1).u8(s.type).u16(s.dur || 0);
+var NO_ALT = 255;
+function ramp(a) {
+  a = a || {};
+  return { start: a.start || 0, cap: a.cap || 0, since: a.since || 0, inc: a.inc || 0, every: a.every || 0 };
+}
+function writeRamp(w, a) { a = ramp(a); w.u32(a.start).u32(a.cap).u32(a.since).u16(a.inc).u16(a.every); }
+function readRamp(r) { return { start: r.i32(), cap: r.i32(), since: r.i32(), inc: r.i16(), every: r.u16() }; }
+
+// A V2 step: its step-ups, rhythm and alternative (`alt`, its index among the item's records, or null).
+function packStepAt(item, index, s, alt) {
+  var w = new Writer(), show = s.show || {};
+  w.u16(item).u8(index).u8(V2).u8(s.type).u8(s.flags || 0).u8(alt == null ? NO_ALT : alt);
+  w.u8(show.every || 0).u32(show.since || 0);
+  writeRamp(w, s.amount);
+  writeRamp(w, s.weight);
   writeNum(w, s.num);
   w.str(s.name, NAME_MAX);
   return w.b;
@@ -95,12 +112,48 @@ function packStepAt(item, index, s) {
 
 function unpackStepAt(b) {
   var r = new Reader(b);
-  var item = r.u16(), index = r.u8();
-  r.version(V1);
-  var s = { type: r.u8(), dur: r.u16() };
+  var item = r.u16(), index = r.u8(), ver = r.u8(), s, alt = null;
+  if (ver === V1) {
+    s = { type: r.u8(), flags: 0, show: { every: 0, since: 0 }, amount: ramp({ start: r.u16() }), weight: ramp() };
+  } else if (ver === V2) {
+    s = { type: r.u8(), flags: r.u8() };
+    alt = r.u8();
+    if (alt === NO_ALT) alt = null;
+    s.show = { every: r.u8(), since: r.i32() };
+    s.amount = readRamp(r);
+    s.weight = readRamp(r);
+  } else throw new Error('bad version');
   s.num = readNum(r);
   s.name = r.str();
-  return { item: item, index: index, step: s };
+  return { item: item, index: index, alt: alt, step: s };
+}
+
+// An item's step records in wire order: its main steps, then each alternative in the order of its main step.
+function stepRecords(it) {
+  var steps = it.steps || [], n = steps.length, out = [], rank = 0, j;
+  for (j = 0; j < n; j++) out.push(packStepAt(it.id, j, steps[j], steps[j].alt ? n + rank++ : null));
+  for (j = 0, rank = 0; j < n; j++) if (steps[j].alt) out.push(packStepAt(it.id, n + rank++, steps[j].alt, null));
+  return out;
+}
+
+// Items from the watch and their step records: main steps in order, each with its alternative (or null).
+function withSteps(items, recs) {
+  return items.map(function (it) {
+    var out = {}, byIndex = [], k, i;
+    for (k in it) if (k !== 'stepCount' && k !== 'altCount') out[k] = it[k];
+    for (i = 0; i < recs.length; i++) if (recs[i].item === it.id) byIndex[recs[i].index] = recs[i];
+    out.steps = [];
+    for (i = 0; i < it.stepCount; i++) {
+      var r = byIndex[i], s = r ? r.step : undefined;
+      if (s) {
+        var a = r.alt != null ? byIndex[r.alt] : null;
+        s.alt = a ? a.step : null;
+        if (a) delete a.step.show;
+      }
+      out.steps.push(s);
+    }
+    return out;
+  });
 }
 
 function packSettingsAt(s, utc) {
@@ -218,6 +271,7 @@ module.exports = {
   T: T, DATA_MAX: DATA_MAX, NAME_MAX: NAME_MAX, UNIT_MAX: UNIT_MAX, SETTINGS_DEFAULT: SETTINGS_DEFAULT,
   utf8Cut: utf8Cut, utf8Bytes: utf8Bytes, utf8Encode: utf8Encode, utf8Decode: utf8Decode,
   packItem: packItem, unpackItem: unpackItem, packStepAt: packStepAt, unpackStepAt: unpackStepAt,
+  stepRecords: stepRecords, withSteps: withSteps,
   packSettingsAt: packSettingsAt, unpackSettingsAt: unpackSettingsAt, unpackLogs: unpackLogs,
   unpackHistory: unpackHistory, noteParts: noteParts, unpackNoteHead: unpackNoteHead, unpackNotePart: unpackNotePart,
   noteFinish: noteFinish, packTombs: packTombs, unpackTombs: unpackTombs, packRename: packRename,

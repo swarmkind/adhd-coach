@@ -181,3 +181,30 @@ test('a phone with little data sends all of it', function () {
   assert.equal(d.notes.length, st.notes.length);
   assert.equal(d.logs.length, st.logs.length);
 });
+
+test('a 1.4.1 schedule loads in the 1.5.0 shape', function () {
+  var mem = new H.MemStorage();
+  var old = { rev: 3, nextId: 7, items: H.sampleItems(), settings: H.clone(codec.SETTINGS_DEFAULT), settingsUtc: 0 };
+  mem.setItem('sched', JSON.stringify(old));
+  var st = new Store(mem);
+  assert.deepEqual(st.sched.items[0].repeat, { every: 0, since: 0 });
+  assert.equal(st.sched.items[0].steps[1].amount.start, 60);
+  assert.ok(!('dur' in st.sched.items[0].steps[1]));
+  assert.equal(st.sched.rev, 3);
+});
+
+test('labels find alternatives and weights', function () {
+  var st = adopted();
+  var w = { id: 9, kind: 0, days: 127, at: 420, name: 'Workout', num: { step: 0, min: 0, max: 0, decimals: 0, unit: '' },
+    steps: [
+      { type: 0, flags: 3, name: 'Curls', num: { step: 0, min: 0, max: 0, decimals: 1, unit: 'kg' },
+        alt: { type: 0, flags: 1, name: 'Shoulder press', num: { step: 0, min: 0, max: 0, decimals: 0, unit: '' } } },
+      { type: 1, flags: 0, name: 'Plank', amount: { start: 60, cap: 0, since: 0, inc: 5, every: 7 } }] };
+  st.adopt(st.sched.items.concat([w]), null, 0);
+  assert.deepEqual(st.labelFor(9, 0), { label: 'Workout · Curls', unit: '', dec: 0 });
+  assert.deepEqual(st.labelFor(9, 0x40), { label: 'Workout · Curls', unit: 'kg', dec: 1 });
+  assert.deepEqual(st.labelFor(9, 2), { label: 'Workout · Shoulder press', unit: '', dec: 0 });
+  assert.deepEqual(st.labelFor(9, 1), { label: 'Workout · Plank', unit: 's', dec: 0 });
+  assert.deepEqual(st.labelFor(2, 255), { label: 'Drink water', unit: 'reps', dec: 0 });
+  assert.deepEqual(st.labelFor(1, 2), { label: 'Morning routine · Weight', unit: 'kg', dec: 1 });
+});

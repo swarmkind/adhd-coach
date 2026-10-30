@@ -11,6 +11,9 @@ void cc_apply(CcItemState *st, const CcItem *it, CcAction a, cc_sec now, cc_sec 
 
 CcItemState *cc_state_for(CcDay *d, uint16_t id);  // NULL if absent
 
+// The first anytime task still open on d's day, as an index into items, or -1: what Done offers next.
+int cc_anytime_next(const CcItem items[], int n, CcDay *d);
+
 // Quiet Time holds a reminder's alert (answered as Skip, silently); everything else alerts.
 bool cc_quiet_holds(const CcItem *it, uint8_t fire_kind);
 

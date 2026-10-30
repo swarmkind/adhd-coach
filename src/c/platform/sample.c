@@ -4,20 +4,25 @@
 #include "../config.h"
 #include "../core/cc_time.h"
 #include "../core/cc_event.h"
+#include "../core/cc_steps.h"
+
+static int s_used;  // pool steps so far: an item's steps are added right after it
 
 static CcItem *add(uint16_t id, uint8_t kind, const char *name, uint16_t at, uint8_t days) {
   CcItem *it = &g_items[g_nitems];
   memset(it, 0, sizeof(*it));
   it->id = id; it->kind = kind; it->at_min = at; it->days = days; it->order = (uint8_t)g_nitems;
+  it->step_first = (uint8_t)s_used;
   strncpy(it->name, name, CC_NAME_MAX - 1);
   g_nitems++;
   return it;
 }
 
 static CcStep *add_step(CcItem *it, uint8_t type, const char *name, uint16_t dur_s) {
-  CcStep *s = &g_steps[it - g_items][it->step_count++];
+  CcStep *s = &g_pool[s_used++];
+  it->step_count++;
   memset(s, 0, sizeof(*s));
-  s->type = type; s->dur_s = dur_s;
+  s->type = type; s->amount.start = dur_s; s->alt = CC_NO_ALT;
   strncpy(s->name, name, CC_NAME_MAX - 1);
   return s;
 }
@@ -26,6 +31,7 @@ void sample_load(cc_sec now) {
   int32_t today = cc_day_of(now);
   uint16_t m = cc_min_of(now);
   g_nitems = 0;
+  s_used = 0;
 
   CcItem *r = add(1, CC_ROUTINE, "Morning routine", 420, 0x3E);  // 07:00 Mon-Fri
   add_step(r, CC_STEP_MANUAL, "Drink a glass of water", 0);
@@ -57,8 +63,28 @@ void sample_load(cc_sec now) {
   cc_sec ev = now + 69 * 60;  // its hour-before rung lands at now + 9 min
   checkup->event_day = cc_day_of(ev); checkup->at_min = cc_min_of(ev);
   checkup->ladder[0] = CC_RUNG_HOUR; checkup->ladder_count = 1;
+  // Step-ups: curls at 21 reps (8, +1 a week for 13 weeks) and 10 kg, or shoulder press instead;
+  // red light every other day, off today. No item after the routine has steps, so they stay together.
+  CcStep *curls = add_step(r, CC_STEP_MANUAL, "Curls", 0);
+  curls->flags = CC_SF_QTY | CC_SF_WEIGHT;
+  curls->amount = (CcRamp){ 8, 0, today - 91, 1, 7 };
+  curls->weight = (CcRamp){ 100, 0, today, 10, 28 };
+  curls->num = (CcNumSpec){ 0, 0, 0, 1, "kg" };
+  CcStep *light = add_step(r, CC_STEP_TIMED, "Red light", 600);
+  light->show_every = 2; light->show_since = today - 1;
+  curls->alt = (uint8_t)(r->step_count + r->alt_count);
+  CcStep *press = add_step(r, CC_STEP_MANUAL, "Shoulder press", 0);  // the alternative, after the main steps
+  r->step_count--; r->alt_count++;
+  press->flags = CC_SF_QTY; press->amount.start = 8;
+  CcItem *many = add(7, CC_ROUTINE, "Sixteen steps", (uint16_t)((m + 30) % 1440), 0x7F);
+  for (int i = 0; i < 16; i++) {
+    char name[12];
+    snprintf(name, sizeof(name), "Step %d", i + 1);
+    add_step(many, CC_STEP_MANUAL, name, 0);
+  }
 #else
   (void)m;
 #endif
+  cc_pool_layout(g_items, g_nitems);
   store_save_schedule();
 }

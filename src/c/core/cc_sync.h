@@ -12,7 +12,7 @@ int cc_frame_put(uint8_t *buf, int cap, int pos, uint8_t type, const uint8_t *re
 // Next pos, 0 at the end, -1 if the buffer is malformed.
 int cc_frame_next(const uint8_t *buf, int len, int pos, uint8_t *type, const uint8_t **rec, int *rec_len);
 
-int cc_pack_step_at(uint16_t item, uint8_t index, const CcStep *s, uint8_t *buf, int len);  // [item u16][index u8] + step
+int cc_pack_step_at(uint16_t item, uint8_t index, const CcStep *s, uint8_t *buf, int len);  // [item u16][index u8] + step; index < CC_ITEM_STEPS
 bool cc_unpack_step_at(const uint8_t *buf, int len, uint16_t *item, uint8_t *index, CcStep *s);
 int cc_pack_settings_at(const CcSettings *c, uint32_t utc, uint8_t *buf, int len);  // [utc u32] + settings
 bool cc_unpack_settings_at(const uint8_t *buf, int len, CcSettings *c, uint32_t *utc);
@@ -26,4 +26,4 @@ int cc_pack_sync(const CcSync *s, uint8_t *buf, int len);
 bool cc_unpack_sync(const uint8_t *buf, int len, CcSync *s);
 
 int cc_day_prune(CcDay *d, const CcItem items[], int n);  // drops states whose item is gone; returns how many
-bool cc_stage_complete(const CcItem *items, int n, const uint16_t *step_mask);  // every item has all its steps
+bool cc_stage_complete(const CcItem *items, int n, const uint64_t *step_mask);  // every item has all its steps and alternatives

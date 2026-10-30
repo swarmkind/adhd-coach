@@ -46,16 +46,29 @@ static void item_vector(const CcItem *it) {
   num_json(&it->num);
   printf(",\"name\":");
   jstr(it->name);
-  printf("},\"hex\":");
+  printf(",\"altCount\":%d,\"repeat\":{\"every\":%d,\"since\":%d}},\"hex\":", it->alt_count, it->every_days,
+         (int)it->every_since);
   hex(buf, n);
   putchar('}');
+}
+
+static void ramp_json(const CcRamp *a) {
+  printf("{\"start\":%d,\"cap\":%d,\"since\":%d,\"inc\":%d,\"every\":%d}", (int)a->start, (int)a->cap, (int)a->since,
+         a->inc, a->every);
 }
 
 static void step_vector(uint16_t item, uint8_t index, const CcStep *s) {
   uint8_t buf[256];
   int n = cc_pack_step_at(item, index, s, buf, sizeof(buf));
   sep();
-  printf("{\"item\":%d,\"index\":%d,\"json\":{\"type\":%d,\"dur\":%d,\"num\":", item, index, s->type, s->dur_s);
+  printf("{\"item\":%d,\"index\":%d,\"alt\":", item, index);
+  if (s->alt == CC_NO_ALT) printf("null"); else printf("%d", s->alt);
+  printf(",\"json\":{\"type\":%d,\"flags\":%d,\"show\":{\"every\":%d,\"since\":%d},\"amount\":", s->type, s->flags,
+         s->show_every, (int)s->show_since);
+  ramp_json(&s->amount);
+  printf(",\"weight\":");
+  ramp_json(&s->weight);
+  printf(",\"num\":");
   num_json(&s->num);
   printf(",\"name\":");
   jstr(s->name);
@@ -74,7 +87,7 @@ static CcItem item(uint16_t id, uint8_t kind, const char *name) {
 
 static CcStep step(uint8_t type, const char *name, uint16_t dur) {
   CcStep s; memset(&s, 0, sizeof(s));
-  s.type = type; s.dur_s = dur;
+  s.type = type; s.amount.start = dur; s.alt = CC_NO_ALT;
   strncpy(s.name, name, CC_NAME_MAX - 1);
   return s;
 }
@@ -104,6 +117,9 @@ int main(void) {
   w.at_min = 0; w.until_min = 1439; w.every_min = 1439; w.days = 0x41; w.flags = CC_F_ASK_NUMBER;
   w.num = (CcNumSpec){ -5, -1000, 2147483647, 2, "\xC2\xB0" "C" };
   item_vector(&w);
+  CcItem k = item(2, CC_ROUTINE, "Workout");  // an alternative and an every-other-day rhythm
+  k.at_min = 1080; k.days = 0x7F; k.step_count = 2; k.alt_count = 1; k.every_days = 2; k.every_since = 20749;
+  item_vector(&k);
 
   printf("\n],\"steps\":[\n");
   s_first = 1;
@@ -113,6 +129,16 @@ int main(void) {
   s2.num = (CcNumSpec){ 1, 300, 2500, 1, "kg" };
   CcStep s3 = step(CC_STEP_TIMED, "Stretch hamstrings and hips", 3600);
   step_vector(1, 0, &s0); step_vector(1, 1, &s1); step_vector(1, 2, &s2); step_vector(1, 3, &s3);
+  CcStep curls = step(CC_STEP_MANUAL, "Curls", 0);
+  curls.flags = CC_SF_QTY | CC_SF_WEIGHT; curls.alt = 2;
+  curls.amount = (CcRamp){ 8, 0, 20749, 1, 7 }; curls.weight = (CcRamp){ 100, 150, 20749, 10, 28 };
+  curls.num = (CcNumSpec){ 0, 0, 0, 1, "kg" };
+  CcStep plank = step(CC_STEP_TIMED, "Plank", 60);
+  plank.amount = (CcRamp){ 60, 120, 20749, 5, 7 }; plank.show_every = 2; plank.show_since = 20750;
+  CcStep press = step(CC_STEP_MANUAL, "Shoulder press", 0);
+  press.flags = CC_SF_QTY; press.amount.start = 8; press.amount.since = 20749; press.weight.inc = -5;
+  press.weight.every = 14;
+  step_vector(2, 0, &curls); step_vector(2, 1, &plank); step_vector(2, 2, &press);
 
   CcSettings c = CC_SETTINGS_DEFAULT;
   c.focus_work_min = 30; c.event_time_min = 600; c.later_event_min = 240;

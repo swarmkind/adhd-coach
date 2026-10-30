@@ -12,6 +12,7 @@
 #include "../core/cc_num.h"
 #include "../core/cc_fires.h"
 #include "../core/cc_time.h"
+#include "../core/cc_steps.h"
 
 // ---- number entry, shared by number steps and the number window ----
 
@@ -32,13 +33,16 @@ static void num_init(NumState *n, uint16_t item, uint8_t step, const CcNumSpec *
   n->value = cc_num_step(n->has_last ? n->last : 0, spec, 0, 0);  // clamped into range
 }
 
+static uint16_t repeats_of(ClickRecognizerRef r) {  // r is NULL for a tap
+  return r && click_recognizer_is_repeating(r) ? click_number_of_clicks_counted(r) : 0;
+}
+
 static void num_change(NumState *n, int dir, ClickRecognizerRef r) {
-  uint16_t repeats = r && click_recognizer_is_repeating(r) ? click_number_of_clicks_counted(r) : 0;  // r is NULL for a tap
-  n->value = cc_num_step(n->value, &n->spec, dir, repeats);
+  n->value = cc_num_step(n->value, &n->spec, dir, repeats_of(r));
 }
 
 static void num_save(const NumState *n) {
-  if (n->item != CC_ITEM_NONE) store_log_number(n->item, n->step, n->value);
+  if (n->item != CC_ITEM_NONE) store_log(n->item, n->step, n->value, true);
   buzz_tick();
 }
 
@@ -120,15 +124,7 @@ static void done_find_next(void) {
     s_done_has_next = true;
     break;
   }
-  s_done_anytime = -1;
-  for (int i = 0; i < g_nitems; i++) {
-    const CcItem *it = &g_items[i];
-    CcItemState *st = cc_state_for(g_day, it->id);
-    if (it->kind == CC_TASK && (it->flags & CC_F_ANYTIME) && (!st || st->status == CC_ST_NONE)) {
-      s_done_anytime = i;
-      break;
-    }
-  }
+  s_done_anytime = cc_anytime_next(g_items, g_nitems, g_day);
 }
 
 static void done_draw(Layer *layer, GContext *ctx) {
@@ -218,14 +214,34 @@ static Layer *s_step_canvas;
 static FitText *s_step_title;
 static AppTimer *s_step_timer;
 static NumState s_num;
+static bool s_value_dirty;  // g_run.value changed since the run was last saved
+static const CcNumSpec QTY_SPEC = { 1, 0, 9999, 0, "" };
+static char s_swap_label[CC_NAME_MAX + 8];
 static int s_slot = -1;
 static bool s_menu_open;
 static int s_menu_choice;
 
-enum { M_LEAVE, M_FINISH, M_SKIP };
+enum { M_SWAP, M_LEAVE, M_FINISH, M_SKIP };
 
-static const CcStep *steps(void) { return g_steps[s_slot]; }
-static const CcStep *cur(void) { return &g_steps[s_slot][g_run.step]; }
+static const CcStep *steps(void) { return coach_steps(s_slot); }
+static const CcStep *cur(void) { return cc_run_cur(&g_run, steps()); }
+static uint8_t cur_index(void) { return g_run.order[g_run.step]; }  // among the item's steps, for logs
+static const CcStep *other(void) { return cc_run_other(&g_run, &g_items[s_slot], steps()); }
+static bool has_qty(const CcStep *s) { return s->type == CC_STEP_MANUAL && (s->flags & CC_SF_QTY); }
+static bool has_weight(const CcStep *s) { return s->type == CC_STEP_MANUAL && (s->flags & CC_SF_WEIGHT); }
+
+// A Do it step's quantity and weight, logged as it is done.
+static void log_done(const CcStep *s) {
+  uint16_t id = g_items[s_slot].id;
+  if (has_qty(s)) store_log(id, cur_index(), cc_run_qty(&g_run, s), false);
+  if (has_weight(s)) store_log(id, cur_index() | CC_LOG_WEIGHT, cc_ramp_at(&s->weight, g_run.day), false);
+}
+
+// A timer that steps up logs the length it ran, so History shows the climb; Undo takes it back.
+static bool logs_length(const CcStep *s) { return s->type == CC_STEP_TIMED && s->amount.inc; }
+static void log_timer(const CcStep *s, uint8_t index) {
+  if (logs_length(s)) store_log(g_items[s_slot].id, index, cc_ramp_at(&s->amount, g_run.day), false);
+}
 static bool undo_offered(cc_sec now) { return g_run.advanced_at && now - g_run.advanced_at <= CC_UNDO_S; }
 
 static void finish_run(bool done) {
@@ -246,7 +262,10 @@ static void schedule_tick(void);
 static void enter_step(void) {
   const CcStep *s = cur();
   fittext_set(s_step_title, s->name);
-  if (s->type == CC_STEP_NUMBER) num_init(&s_num, g_items[s_slot].id, g_run.step, &s->num);
+  if (s->type == CC_STEP_NUMBER) {
+    num_init(&s_num, g_items[s_slot].id, cur_index(), &s->num);
+    if (g_run.value != CC_RUN_PLAN) s_num.value = cc_num_step(g_run.value, &s->num, 0, 0);  // changed before a menu or Leave
+  }
   layer_mark_dirty(s_step_canvas);
   schedule_tick();
 }
@@ -262,8 +281,11 @@ static void after_change(CcRunEvent ev) {
 static void step_tick(void *data) {
   s_step_timer = NULL;
   if (!g_run.active) return;
+  const CcStep *was = cur();
+  uint8_t index = cur_index();
   CcRunEvent ev = cc_run_tick(&g_run, steps(), clock_now_local());
   if (ev != CC_RUN_NONE) {
+    log_timer(was, index);
     buzz_step_done();
     after_change(ev);
     return;
@@ -287,6 +309,44 @@ static void fmt_remaining(int32_t s, char *buf, int len) {
   else snprintf(buf, len, "%d:%02d", (int)(s / 60), (int)(s % 60));
 }
 
+static int text_w(const char *t, GFont f) {
+  return graphics_text_layout_get_content_size(t, f, GRect(0, 0, 400, 60), GTextOverflowModeFill, GTextAlignmentLeft).w;
+}
+
+static void draw_cross(GContext *ctx, int x, int mid, int size) {  // Gothic has no ×
+  graphics_draw_line(ctx, GPoint(x, mid - size / 2), GPoint(x + size, mid + size / 2));
+  graphics_draw_line(ctx, GPoint(x, mid + size / 2), GPoint(x + size, mid - size / 2));
+}
+
+// "× 21", "21 × 12.5 kg" or "12.5 kg" at `y`, in a smaller face when it doesn't fit.
+static void target_draw(GContext *ctx, const CcStep *s, int y) {
+  bool hq = has_qty(s), hw = has_weight(s);
+  char q[8], w[12];
+  snprintf(q, sizeof(q), "%d", (int)cc_run_qty(&g_run, s));
+  cc_num_format(cc_ramp_at(&s->weight, g_run.day), s->num.decimals, w, sizeof(w));
+  GFont unit = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+  int uw = hw && s->num.unit[0] ? text_w(s->num.unit, unit) + 4 : 0;
+  for (int small = 0; small < 2; small++) {
+    GFont big = fonts_get_system_font(small ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_BITHAM_42_BOLD);
+    int cross = small ? 10 : 16, gap = small ? 5 : 7, mid = y + (small ? 19 : 26), unit_dy = small ? 10 : 24;
+    int qw = hq ? text_w(q, big) : 0, ww = hw ? text_w(w, big) : 0;
+    int total = qw + ww + uw + (hq ? cross + gap * (hw ? 2 : 1) : 0);
+    if (total > POSTER_TEXT_W && !small) continue;
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_context_set_stroke_width(ctx, small ? 2 : 3);
+    int x = POSTER_TEXT_X;
+    if (hq && !hw) { draw_cross(ctx, x, mid, cross); x += cross + gap; }
+    if (hq) { graphics_draw_text(ctx, q, big, GRect(x, y, qw + 2, 50), GTextOverflowModeFill, GTextAlignmentLeft, NULL); x += qw; }
+    if (hq && hw) { draw_cross(ctx, x + gap, mid, cross); x += cross + 2 * gap; }
+    if (hw) {
+      graphics_draw_text(ctx, w, big, GRect(x, y, ww + 2, 50), GTextOverflowModeFill, GTextAlignmentLeft, NULL);
+      if (uw) graphics_draw_text(ctx, s->num.unit, unit, GRect(x + ww + 4, y + unit_dy, uw, 24), GTextOverflowModeFill,
+                                 GTextAlignmentLeft, NULL);
+    }
+    return;
+  }
+}
+
 static void step_draw(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
   GColor bg = poster_kind_color(CC_ROUTINE);
@@ -302,7 +362,7 @@ static void step_draw(Layer *layer, GContext *ctx) {
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 
   // progress: done black, current white, future orange
-  int n = g_run.step_count, gap = 3;
+  int n = g_run.step_count, gap = n > 12 ? 1 : 3;
   int seg = (POSTER_TEXT_W - gap * (n - 1)) / n;
   for (int i = 0; i < n; i++) {
     graphics_context_set_fill_color(ctx, i < g_run.step ? GColorBlack : i == g_run.step ? GColorWhite : GColorOrange);
@@ -323,21 +383,30 @@ static void step_draw(Layer *layer, GContext *ctx) {
     poster_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 132, POSTER_TEXT_W, 24));
   } else if (s->type == CC_STEP_NUMBER) {
     num_draw(ctx, &s_num, 76);
+  } else if (has_qty(s) || has_weight(s)) {
+    target_draw(ctx, s, 80);
+  }
+
+  const CcStep *alt = other();
+  if (alt) {
+    char line[CC_NAME_MAX + 6];
+    snprintf(line, sizeof(line), "or: %s", alt->name);
+    poster_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 174, POSTER_TEXT_W, 24));
   }
 
   if (g_run.step + 1 < g_run.step_count && s->type != CC_STEP_NUMBER) {
     char next[CC_NAME_MAX + 8];
-    snprintf(next, sizeof(next), "next: %s", steps()[g_run.step + 1].name);
+    snprintf(next, sizeof(next), "next: %s", steps()[g_run.order[g_run.step + 1]].name);
     poster_text(ctx, next, fonts_get_system_font(FONT_KEY_GOTHIC_18), GRect(POSTER_TEXT_X, 196, POSTER_TEXT_W, 24));
   }
 
   RailAction rail[3] = { { G_NONE, NULL }, { G_DONE, "done" }, { G_NONE, NULL } };
   if (s->type == CC_STEP_TIMED) rail[1] = g_run.paused ? (RailAction){ G_RESUME, "start" } : (RailAction){ G_PAUSE, "stop" };
-  if (s->type == CC_STEP_NUMBER) {
+  if (s->type == CC_STEP_NUMBER || has_qty(s)) {
     rail[0] = (RailAction){ G_PLUS, NULL };
-    rail[1] = (RailAction){ G_DONE, "save" };
     rail[2] = (RailAction){ G_MINUS, NULL };
   }
+  if (s->type == CC_STEP_NUMBER) rail[1] = (RailAction){ G_DONE, "save" };
   if (undo_offered(now)) rail[0] = (RailAction){ G_UNDO, "undo" };
   poster_draw_rail(ctx, b, bg, rail);
 }
@@ -357,27 +426,37 @@ static void step_select(ClickRecognizerRef r, void *ctx) {
       after_change(cc_run_next(&g_run, steps(), now));
       break;
     default:
+      log_done(cur());
       after_change(cc_run_next(&g_run, steps(), now));
       break;
   }
 }
 
-static void step_up(ClickRecognizerRef r, void *ctx) {
-  cc_sec now = clock_now_local();
-  if (!(r && click_recognizer_is_repeating(r)) && undo_offered(now) && cc_run_undo(&g_run, steps(), now)) {
-    after_change(CC_RUN_NONE);
+// Up and Down on a Do it count or a number: the run keeps the value until the step changes.
+static void value_change(int dir, ClickRecognizerRef r) {
+  if (has_qty(cur())) {
+    g_run.value = cc_num_step(cc_run_qty(&g_run, cur()), &QTY_SPEC, dir, repeats_of(r));
+  } else if (cur()->type == CC_STEP_NUMBER) {
+    num_change(&s_num, dir, r);
+    g_run.value = s_num.value;
+  } else {
     return;
   }
-  if (cur()->type != CC_STEP_NUMBER) return;
-  num_change(&s_num, +1, r);
+  s_value_dirty = true;
   layer_mark_dirty(s_step_canvas);
 }
 
-static void step_down(ClickRecognizerRef r, void *ctx) {
-  if (cur()->type != CC_STEP_NUMBER) return;
-  num_change(&s_num, -1, r);
-  layer_mark_dirty(s_step_canvas);
+static void step_up(ClickRecognizerRef r, void *ctx) {
+  cc_sec now = clock_now_local();
+  if (!(r && click_recognizer_is_repeating(r)) && undo_offered(now) && cc_run_undo(&g_run, steps(), now)) {
+    if (logs_length(cur())) store_unlog(g_items[s_slot].id, cur_index());  // it runs again and logs then
+    after_change(CC_RUN_NONE);
+    return;
+  }
+  value_change(+1, r);
 }
+
+static void step_down(ClickRecognizerRef r, void *ctx) { value_change(-1, r); }
 
 static void step_back(ClickRecognizerRef r, void *ctx) {  // skip this step, nothing logged
   after_change(cc_run_next(&g_run, steps(), clock_now_local()));
@@ -390,14 +469,20 @@ static void menu_perform(ActionMenu *menu, const ActionMenuItem *action, void *c
 static void menu_closed(ActionMenu *menu, const ActionMenuItem *performed, void *ctx) {
   action_menu_hierarchy_destroy(action_menu_get_root_level(menu), NULL, NULL);
   s_menu_open = false;
-  if (s_menu_choice == M_LEAVE) window_stack_remove(s_step_win, true);  // the run stays parked
+  if (s_menu_choice == M_SWAP && cc_run_swap(&g_run, &g_items[s_slot], steps(), clock_now_local())) after_change(CC_RUN_NONE);
+  else if (s_menu_choice == M_LEAVE) window_stack_remove(s_step_win, true);  // the run stays parked
   else if (s_menu_choice == M_FINISH) finish_run(true);
   else if (s_menu_choice == M_SKIP) finish_run(false);
 }
 
 static void step_select_long(ClickRecognizerRef r, void *ctx) {
   if (s_menu_open) return;
-  ActionMenuLevel *level = action_menu_level_create(3);
+  const CcStep *alt = other();
+  ActionMenuLevel *level = action_menu_level_create(alt ? 4 : 3);
+  if (alt) {
+    snprintf(s_swap_label, sizeof(s_swap_label), "Swap to %s", alt->name);
+    action_menu_level_add_action(level, s_swap_label, menu_perform, (void *)M_SWAP);
+  }
   action_menu_level_add_action(level, "Leave, resume later", menu_perform, (void *)M_LEAVE);
   action_menu_level_add_action(level, "Finish routine now", menu_perform, (void *)M_FINISH);
   action_menu_level_add_action(level, "Skip routine today", menu_perform, (void *)M_SKIP);
@@ -409,8 +494,8 @@ static void step_select_long(ClickRecognizerRef r, void *ctx) {
 static void step_clicks(void *ctx) {
   window_single_click_subscribe(BUTTON_ID_SELECT, step_select);
   window_long_click_subscribe(BUTTON_ID_SELECT, 500, step_select_long, NULL);
-  window_single_repeating_click_subscribe(BUTTON_ID_UP, 100, step_up);
-  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 100, step_down);
+  window_single_repeating_click_subscribe(BUTTON_ID_UP, CC_NUM_REPEAT_MS, step_up);
+  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, CC_NUM_REPEAT_MS, step_down);
   window_single_click_subscribe(BUTTON_ID_BACK, step_back);
 }
 
@@ -431,8 +516,11 @@ static void close_dead_runner(void *ctx) {
 static void step_appear(Window *w) {
   if (!g_run.active) { app_timer_register(0, close_dead_runner, NULL); return; }  // ended from Today or an alert
   // Catch up a clock that ran out while this window was hidden or the app was closed.
+  const CcStep *was = cur();
+  uint8_t index = cur_index();
   CcRunEvent ev = cc_run_tick(&g_run, steps(), clock_now_local());
   if (ev != CC_RUN_NONE) {
+    log_timer(was, index);
     buzz_step_done();
     store_save_run();
     wake_rearm();
@@ -443,6 +531,8 @@ static void step_appear(Window *w) {
 
 static void step_disappear(Window *w) {
   if (s_step_timer) { app_timer_cancel(s_step_timer); s_step_timer = NULL; }
+  if (s_value_dirty && g_run.active) store_save_run();  // once, not on every press
+  s_value_dirty = false;
 }
 
 static void step_unload(Window *w) {
@@ -455,7 +545,7 @@ bool run_win_showing(void) { return s_step_win && window_stack_contains_window(s
 
 void run_win_open(void) {
   s_slot = coach_slot(g_run.item_id);
-  if (!g_run.active || s_slot < 0 || g_run.step >= g_items[s_slot].step_count) return;
+  if (!g_run.active || s_slot < 0 || g_run.step >= g_run.step_count) return;
   if (!s_step_win) {
     s_step_win = window_create();
     window_set_window_handlers(s_step_win, (WindowHandlers){
@@ -501,8 +591,8 @@ static void num_win_down(ClickRecognizerRef r, void *ctx) { num_change(&s_wnum, 
 static void num_win_clicks(void *ctx) {
   window_single_click_subscribe(BUTTON_ID_SELECT, num_win_select);
   window_single_click_subscribe(BUTTON_ID_BACK, num_win_back);
-  window_single_repeating_click_subscribe(BUTTON_ID_UP, 100, num_win_up);
-  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 100, num_win_down);
+  window_single_repeating_click_subscribe(BUTTON_ID_UP, CC_NUM_REPEAT_MS, num_win_up);
+  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, CC_NUM_REPEAT_MS, num_win_down);
 }
 
 static void num_win_load(Window *w) {

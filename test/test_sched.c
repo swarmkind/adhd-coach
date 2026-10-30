@@ -112,4 +112,10 @@ void test_sched(void) {
   EP.ladder_count = (uint8_t)cc_ladder_preset(CC_LADDER_PERSISTENT, EP.ladder);
   T_EQ(cc_next_due(&EP, &ef, cc_at(D, 720), &cfg), cc_at(D + 9, 540));        // three weeks before
   T_EQ(cc_next_headsup(&E, &ef, cc_at(D, 720), &cfg), CC_NEVER);              // events have no heads-up
+
+  // Every 30 days from D at 09:00: past today's slot, the next one is 30 days out (beyond a week).
+  CcItem E30; memset(&E30, 0, sizeof(E30));
+  E30.id = 9; E30.kind = CC_TASK; E30.at_min = 540; E30.every_days = 30; E30.every_since = D;
+  T_EQ(cc_next_due(&E30, NULL, cc_at(D, 600), &cfg), cc_at(D + 30, 540));
+  T_EQ(cc_next_due(&E30, NULL, cc_at(D + 1, 600), &cfg), cc_at(D + 30, 540));
 }

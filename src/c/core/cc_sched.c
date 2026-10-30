@@ -1,10 +1,11 @@
 #include "cc_sched.h"
 #include "cc_time.h"
 #include "cc_event.h"
+#include "cc_steps.h"
 
 static const CcItemState FRESH;
 
-static bool on_day(const CcItem *it, int32_t day) { return (it->days >> cc_weekday(day)) & 1; }
+static bool on_day(const CcItem *it, int32_t day) { return cc_item_on_day(it, day); }
 static int every(const CcItem *it) { return it->every_min ? it->every_min : 1440; }  // 0 = one slot
 
 cc_sec cc_catchup_s(const CcItem *it, const CcSettings *cfg) {
@@ -56,10 +57,9 @@ cc_sec cc_next_due(const CcItem *it, const CcItemState *today, cc_sec now, const
   if (it->flags & (CC_F_SILENT | CC_F_ANYTIME)) return CC_NEVER;
   int32_t day = cc_day_of(now);
   if (it->kind == CC_EVENT) return event_due(it, today ? today : &FRESH, day, now - cc_catchup_s(it, cfg), cfg);
-  if (!it->days) return CC_NEVER;
   cc_sec t = due_today(it, today ? today : &FRESH, day, now - cc_catchup_s(it, cfg));
   if (t != CC_NEVER) return t;
-  for (int k = 1; k <= 7; k++)
+  for (int k = 1; k <= 31; k++)  // a rhythm can be up to CC_EVERY_MAX days apart
     if (on_day(it, day + k)) return cc_at(day + k, it->at_min);
   return CC_NEVER;
 }

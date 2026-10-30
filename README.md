@@ -20,9 +20,9 @@ It is a personal organiser, not a medical device or a treatment.
 
 ## What it does
 
-- **Routines**: a list of steps run one screen at a time. Steps can be a simple "done", a countdown timer, or a number to log (weight, reps, mood).
+- **Routines**: a list of steps run one screen at a time. Steps can be a simple "done", a countdown timer, or a number to log (weight, reps, mood). Reps, weights and timer lengths can step up over time ("Pushups 20, plus 1 a week"), a step can have an alternative to swap to, and a step can come up only every few days.
 - **Reminders**: repeat every so many minutes inside a daily window, with an optional daily goal ("Drink water, every hour, 9 to 9, goal 8").
-- **Tasks**: at a set time on chosen days, or "anytime" in a do-next list.
+- **Tasks**: at a set time on chosen days or every few days, or "anytime" in a do-next list.
 - **Events**: one-off appointments with a ladder of early warnings (a week before, the day before, the morning of, an hour before).
 - **Focus**: a Pomodoro-style timer (25 minutes on, 5 off by default) that can be tied to a task.
 - **Voice notes**: speak a thought and it's saved as text. Hold a button on the watch face to start one straight away. Turn one into a to-do with a reminder.
@@ -97,7 +97,7 @@ The planner was tested with Gravel. It should work the same way in Core's Pebble
 
 ## Status
 
-Version 1.4.1. Every screen has been walked through in the Pebble emulator, and the phone pieces it relies on (sideloading, dictation, the built-in planner page) were proven on a real Pebble Time 2 with Gravel. Real-world use is just starting, so if something feels off, please [open an issue](https://github.com/swarmkind/adhd-coach/issues).
+Version 1.5.0. Every screen has been walked through in the Pebble emulator, and the phone pieces it relies on (sideloading, dictation, the built-in planner page) were proven on a real Pebble Time 2 with Gravel. Real-world use is just starting, so if something feels off, please [open an issue](https://github.com/swarmkind/adhd-coach/issues).
 
 ## Licence
 

@@ -80,12 +80,12 @@
 
   function subLine(it) {
     var p = [], n = (it.steps || []).length;
-    if (it.kind === K.ROUTINE) p.push(M.daysText(it.days), n + (n === 1 ? ' step' : ' steps'));
+    if (it.kind === K.ROUTINE) p.push(M.whenText(it), n + (n === 1 ? ' step' : ' steps'));
     if (it.kind === K.REMINDER) {
       p.push('every ' + it.every + ' min', M.minToHHMM(it.at) + ' to ' + M.minToHHMM(it.until));
       if (it.goal) p.push('goal ' + it.goal);
     }
-    if (it.kind === K.TASK) p.push(it.flags & F.ANYTIME ? 'anytime' : M.daysText(it.days));
+    if (it.kind === K.TASK) p.push(M.whenText(it));
     if (it.kind === K.EVENT) p.push(M.dayText(it.eventDay), M.ladderName(it.ladder));
     if (it.priority) p.push(it.priority === 2 ? 'critical' : 'important');
     if (it.flags & F.SILENT) p.push('silent');
@@ -123,8 +123,15 @@
       (t ? seg(t, 22) : '') + '</button>' + rail + '</div>';
   }
 
+  // Limits across the schedule, such as a 1.4.1 schedule with more steps than the pool: Save waits on them.
+  function overErrors() {
+    var e = M.scheduleErrors(S.items);
+    return e.length ? '<div class="errors" role="alert">' + e.map(function (m) { return '<span>' + esc(m) + '</span>'; }).join('') +
+      '<span>Remove some steps, then Save.</span></div>' : '';
+  }
+
   function scheduleView() {
-    var out = '', full = S.items.length >= M.MAX_ITEMS;
+    var out = overErrors(), full = S.items.length >= M.MAX_ITEMS;
     for (var k = 0; k < 4; k++) {
       var list = S.items.filter(function (it) { return it.kind === k; });
       if (k === K.TASK) {  // timed tasks by time, then the anytime backlog in its order
@@ -187,20 +194,15 @@
       (hist.length ? '<button data-act="export" data-v="days">Export days (CSV) ' + glyph('next', 20) + '</button>' : '') + '</div>' +
       (MORE.logs || MORE.days ? '<p class="hint">Recent numbers and the last ' + hist.length + ' days. The exports hold everything the phone has kept.</p>' : '');
     if (logs.length) {
-      var groups = {}, order = [];
-      for (var i = logs.length - 1; i >= 0; i--) {
-        var l = logs[i], key = l.item + '/' + l.step;
-        if (!groups[key]) { groups[key] = []; order.push(key); }
-        groups[key].push(l);
-      }
-      out += '<h2>Numbers</h2>' + order.map(function (key) {
-        var g = groups[key], last = g[0];
+      out += '<h2>Numbers</h2>' + M.series(logs).map(function (one) {
+        var g = M.pairWeights(one), last = g[0], w = last.weight;
+        var unit = (last.unit ? last.unit + ' ' : '') + (w ? '\u00d7 ' + M.fromScaled(w.v, w.dec) + (w.unit ? ' ' + w.unit : '') : '');
         return '<div class="series"><div class="top"><span class="label">' + esc(last.label) + '</span>' +
-          '<span class="big">' + seg(M.fromScaled(last.v, last.dec), 26) + '<span class="unit">' + esc(last.unit) + '</span></span></div>' +
+          '<span class="big">' + seg(M.fromScaled(last.v, last.dec), 26) + '<span class="unit">' + esc(unit) + '</span></span></div>' +
           '<ol>' + g.slice(0, 8).map(function (e) {
             var at = M.local(e.t);
             return '<li><span>' + at.wday + ' ' + at.date + ' ' + at.month + ' ' + M.minToHHMM(at.min) + '</span><b>' +
-              esc(M.fromScaled(e.v, e.dec) + (e.unit ? ' ' + e.unit : '')) + '</b></li>';
+              esc(e.text) + '</b></li>';
           }).join('') + '</ol></div>';
       }).join('');
     }
@@ -271,22 +273,80 @@
       '</div>';
   }
 
-  function stepCard(s, i, n) {
-    var type = choice('steps.' + i + '.type', [[ST.MANUAL, 'Do it'], [ST.TIMED, 'Timer'], [ST.NUMBER, 'Number']], s.type);
-    var extra = '';
+  // Step-ups are stored in days and shown in weeks when they come in whole weeks.
+  var PER = [['w', 'weeks'], ['d', 'days']];
+  function perOf(path, r) { return S.edit.per[path] || (r.every && r.every % 7 ? 'd' : 'w'); }
+
+  function todayField(path, r, dec, unit) {
+    return '<label>Today' + (unit ? ' (' + esc(unit) + ')' : '') + '<input class="txt" inputmode="decimal" data-f="' + path +
+      '.today" value="' + M.fromScaled(M.valueAt(r, TODAY), dec) + '"></label>';
+  }
+
+  // Today's value (`today`), then Increase, Every n weeks or days, and Stop at; values scaled by `dec`.
+  function rampFields(path, r, dec, today, unit) {
+    var per = perOf(path, r), n = r.every ? (per === 'w' ? r.every / 7 : r.every) : '', u = unit ? ' (' + esc(unit) + ')' : '';
+    return '<div class="grid2">' + today +
+      '<label>Increase' + u + '<input class="txt" inputmode="decimal" data-f="' + path + '.inc" value="' +
+      (r.inc ? M.fromScaled(r.inc, dec) : '') + '" placeholder="none"></label>' +
+      '<label>Every<span class="per"><input class="txt" inputmode="numeric" data-f="' + path + '.every" value="' + n +
+      '" aria-label="Every how many"><select data-f="' + path + '.per" aria-label="Weeks or days">' + PER.map(function (o) {
+        return '<option value="' + o[0] + '"' + (o[0] === per ? ' selected' : '') + '>' + o[1] + '</option>';
+      }).join('') + '</select></span></label>' +
+      '<label>Stop at' + u + '<input class="txt" inputmode="decimal" data-f="' + path + '.cap" value="' +
+      (r.cap ? M.fromScaled(r.cap, dec) : '') + '" placeholder="none"></label></div>';
+  }
+
+  // What a step or its alternative (data path `p`) is and counts.
+  function stepFields(p, s) {
+    var out = choice(p + '.type', [[ST.MANUAL, 'Do it'], [ST.TIMED, 'Timer'], [ST.NUMBER, 'Number']], s.type);
     if (s.type === ST.TIMED) {
-      extra = '<div class="grid2"><label>Minutes<input class="txt" inputmode="numeric" data-f="steps.' + i + '.min" value="' +
-        Math.floor(s.dur / 60) + '"></label><label>Seconds<input class="txt" inputmode="numeric" data-f="steps.' + i +
-        '.sec" value="' + s.dur % 60 + '"></label></div>';
+      var len = M.valueAt(s.amount, TODAY);
+      out += rampFields(p + '.amount', s.amount, 0,
+        '<label>Minutes<input class="txt" inputmode="numeric" data-f="' + p + '.amount.min" value="' + Math.floor(len / 60) + '"></label>' +
+        '<label>Seconds<input class="txt" inputmode="numeric" data-f="' + p + '.amount.sec" value="' + len % 60 + '"></label>', 's');
     } else if (s.type === ST.NUMBER) {
-      extra = numFields('steps.' + i + '.num', s.num);
+      out += numFields(p + '.num', s.num);
+    } else {
+      var q = s.flags & M.SFLAG.QTY, w = s.flags & M.SFLAG.WEIGHT;
+      out += sw(p + '.qty', q, 'Quantity');
+      if (q) out += rampFields(p + '.amount', s.amount, 0, todayField(p + '.amount', s.amount, 0, ''), '');
+      out += sw(p + '.weight', w, 'Weight');
+      if (w) {
+        out += '<div class="grid2"><label>Unit<input class="txt" data-f="' + p + '.num.unit" value="' + esc(s.num.unit) +
+          '" maxlength="5" placeholder="kg"></label><label>Decimals<select data-f="' + p + '.num.decimals">' + [0, 1, 2].map(function (d) {
+            return '<option value="' + d + '"' + (s.num.decimals === d ? ' selected' : '') + '>' + d + '</option>';
+          }).join('') + '</select></label></div>' +
+          rampFields(p + '.weight', s.weight, s.num.decimals, todayField(p + '.weight', s.weight, s.num.decimals, s.num.unit), s.num.unit);
+      }
     }
+    return out;
+  }
+
+  function everyFields(path, r) {
+    return '<div class="grid2"><label>Every (days)<input class="txt" inputmode="numeric" data-f="' + path + '.every" value="' + r.every +
+      '"></label><label>Starting<input type="date" data-f="' + path + '.since" value="' + M.dayToISO(r.since) + '"></label></div>';
+  }
+
+  function stepCard(s, i, n) {
+    var p = 'steps.' + i;
+    var alt = s.alt ? '<div class="alt"><div class="althead"><span>Or instead</span><button data-act="alt-del" data-v="' + i +
+        '">Remove alternative</button></div><input class="txt" data-f="' + p + '.alt.name" value="' + esc(s.alt.name) +
+        '" placeholder="Alternative name" aria-label="Step ' + (i + 1) + ' alternative name">' + stepFields(p + '.alt', s.alt) + '</div>'
+      : '<button class="add" data-act="alt-add" data-v="' + i + '">' + glyph('plus', 20) + 'Add alternative</button>';
     return '<div class="step"><div class="card"><div class="top">' + seg(String(i + 1), 20) +
-      '<input class="txt" data-f="steps.' + i + '.name" value="' + esc(s.name) + '" placeholder="Step name" aria-label="Step ' + (i + 1) + ' name"></div>' +
-      type + extra + '</div><div class="rail">' +
+      '<input class="txt" data-f="' + p + '.name" value="' + esc(s.name) + '" placeholder="Step name" aria-label="Step ' + (i + 1) + ' name"></div>' +
+      stepFields(p, s) + '<span class="lbl">Show</span>' +
+      choice(p + '.show', [[0, 'Every time'], [1, 'Every few days']], s.show.every ? 1 : 0) +
+      (s.show.every ? everyFields(p + '.show', s.show) : '') + alt + '</div><div class="rail">' +
       '<button data-act="step-move" data-v="' + i + '" data-d="-1" aria-label="Move step up"' + (i === 0 ? ' disabled' : '') + '>' + glyph('up', 20) + '</button>' +
       '<button data-act="step-move" data-v="' + i + '" data-d="1" aria-label="Move step down"' + (i === n - 1 ? ' disabled' : '') + '>' + glyph('down', 20) + '</button>' +
       '<button data-act="step-del" data-v="' + i + '" aria-label="Delete step">' + glyph('close', 20) + '</button></div></div>';
+  }
+
+  // Routines and tasks: on weekdays (every day for an anytime task), or every N days from a date.
+  function repeatFields(it, anytime) {
+    return choice('repeat', [[0, anytime ? 'Every day' : 'On these days'], [1, 'Every few days']], it.repeat.every ? 1 : 0) +
+      (it.repeat.every ? everyFields('repeat', it.repeat) : anytime ? '' : daysPicker(it.days));
   }
 
   function editorView() {
@@ -298,6 +358,7 @@
       '<div class="rail"><button data-act="edit-cancel" aria-label="Back without keeping changes">' + glyph('close') + '</button></div></div><div class="body">';
     var anytime = k === K.TASK && (it.flags & F.ANYTIME);
     if (k === K.TASK) out += sw('anytime', anytime, 'Anytime (a backlog, no set time)');
+    if (anytime) out += '<h2>Repeat</h2>' + repeatFields(it, true);
     if (k === K.EVENT) {
       out += '<h2>When</h2><div class="row"><label for="f-date">Date</label><input id="f-date" type="date" data-f="date" value="' +
         M.dayToISO(it.eventDay) + '"></div><div class="row"><label for="f-at">Time</label><input id="f-at" type="time" data-f="at" value="' +
@@ -312,7 +373,7 @@
       out += '<p class="hint">' + (rungs ? rungs.charAt(0).toUpperCase() + rungs.slice(1) : 'No reminders') +
         '. Advance reminders come at ' + M.minToHHMM(S.settings.eventTime || 540) + '.</p>';
     } else if (!anytime) {
-      out += '<h2>When</h2>' + daysPicker(it.days);
+      out += '<h2>When</h2>' + (k === K.REMINDER ? daysPicker(it.days) : repeatFields(it, false));
       if (k === K.REMINDER) {
         out += '<div class="row"><label for="f-at">From</label><input id="f-at" type="time" data-f="at" value="' + M.minToHHMM(it.at) + '"></div>' +
           '<div class="row"><label for="f-until">Until</label><input id="f-until" type="time" data-f="until" value="' + M.minToHHMM(it.until) + '"></div>' +
@@ -335,9 +396,11 @@
     if (k === K.ROUTINE) {
       out += '<h2>Steps <span class="n">' + it.steps.length + ' of ' + M.MAX_STEPS + '</span></h2>' +
         it.steps.map(function (s, i) { return stepCard(s, i, it.steps.length); }).join('') +
-        (it.steps.length < M.MAX_STEPS ? '<button class="add" data-act="step-add">' + glyph('plus', 20) + 'Add a step</button>' : '');
+        (it.steps.length < M.MAX_STEPS ? '<button class="add" data-act="step-add">' + glyph('plus', 20) + 'Add a step</button>' : '') +
+        M.warnings(it).map(function (w) { return '<p class="hint warn">' + esc(w) + '</p>'; }).join('');
     }
-    if (S.errors.length) out += '<div class="errors" role="alert">' + S.errors.map(function (m) { return '<span>' + esc(m) + '</span>'; }).join('') + '</div>';
+    if (S.errors.length) S.errors = editErrors(it);  // shown since Done: a fix clears its message straight away
+    if (S.errors.length) out += '<div class="errors" role="alert">' + errorSpans(S.errors) + '</div>';
     out += '</div></div>';
     return out;
   }
@@ -389,7 +452,7 @@
   }
 
   function openEditor(it, isNew) {
-    S.edit = { draft: clone(it), isNew: isNew, ladderMode: null, scroll: window.scrollY };
+    S.edit = { draft: M.upgrade(clone(it)), isNew: isNew, ladderMode: null, per: {}, scroll: window.scrollY };
     S.errors = [];
     render();
     window.scrollTo(0, 0);
@@ -424,9 +487,14 @@
       it.name = v;
       var c = app.querySelector('[data-count]');
       if (c) c.textContent = M.utf8Bytes(v) + '/31';
-    } else if (/^steps\.\d+\.name$/.test(f) || /\.unit$/.test(f)) {
+    } else if (/^steps\.\d+(\.alt)?\.name$/.test(f) || /\.unit$/.test(f)) {
       setPath(it, f, v);
     }
+    if (!S.errors.length) return;  // shown since Done: update the box in place, keeping the keyboard up
+    S.errors = editErrors(it);
+    var box = app.querySelector('.sheet .errors');
+    if (box && S.errors.length) box.innerHTML = errorSpans(S.errors);
+    else if (box) box.parentNode.removeChild(box);
   }
 
   function onChange(ev) {
@@ -437,22 +505,63 @@
     else if (f === 'date') { var d = M.isoToDay(v); if (d !== null) it.eventDay = d; }
     else if (f === 'every' || f === 'goal') { var n = parseInt(v, 10); if (n >= 0) it[f] = Math.min(f === 'goal' ? 255 : 1439, n); }
     else if (f === 'grace') it.grace = parseInt(v, 10) || 0;
-    else if ((m = /^steps\.(\d+)\.(min|sec)$/.exec(f))) {
-      var s = it.steps[+m[1]], x = Math.max(0, parseInt(v, 10) || 0);
-      var mins = m[2] === 'min' ? x : Math.floor(s.dur / 60), secs = m[2] === 'sec' ? Math.min(59, x) : s.dur % 60;
-      s.dur = Math.min(65535, mins * 60 + secs);
+    else if ((m = /^(steps\.\d+(?:\.alt)?\.(?:amount|weight))\.(today|min|sec|inc|every|per|cap)$/.exec(f))) {
+      if (!rampChange(it, m[1], m[2], v)) return;
+    } else if ((m = /^(steps\.\d+\.show|repeat)\.(every|since)$/.exec(f))) {
+      var r = getPath(it, m[1]), x = m[2] === 'every' ? parseInt(v, 10) : M.isoToDay(v);
+      if (x === null || isNaN(x)) return;
+      r[m[2]] = x;
     } else if ((m = /^(.*num)\.(decimals)$/.exec(f))) {
-      var spec = getPath(it, m[1]), nd = parseInt(v, 10), scale = Math.pow(10, nd - spec.decimals);
-      spec.min = Math.round(spec.min * scale); spec.max = Math.round(spec.max * scale);
-      spec.step = Math.max(1, Math.round(spec.step * scale)); spec.decimals = nd;
+      M.setDecimals(getPath(it, m[1]), weightOf(it, m[1]), parseInt(v, 10));
     } else if ((m = /^(.*num)\.(min|max|step)$/.exec(f))) {
-      var sp = getPath(it, m[1]), val = M.toScaled(v, sp.decimals);
+      var sp = getPath(it, m[1]), need = M.decimalsFor(v);
+      if (need > sp.decimals) M.setDecimals(sp, weightOf(it, m[1]), need);  // 82.5 with Decimals 0 keeps its half
+      var val = M.toScaled(v, sp.decimals);
       if (val !== null) sp[m[2]] = val;
     } else {
       onInput(ev);
       return;
     }
     render();
+  }
+
+  function errorSpans(list) { return list.map(function (m) { return '<span>' + esc(m) + '</span>'; }).join(''); }
+
+  // What Done refuses: the item's own problems, and the schedule's limits with it in.
+  function editErrors(it) {
+    var cleaned = M.clean(it);
+    return M.validate(cleaned).concat(M.scheduleErrors(S.items.filter(function (x) { return x.id !== cleaned.id; }).concat([cleaned])));
+  }
+
+  // The weight a number's decimals scale: a step's, or none for a reminder's number.
+  function weightOf(it, numPath) { return numPath === 'num' ? null : getPath(it, numPath.slice(0, -4)).weight; }
+
+  // An edit to a step-up: today's value starts from today, a new increase or period keeps today's value.
+  function rampChange(it, path, key, v) {
+    var spec = /weight$/.test(path) ? getPath(it, path.slice(0, -7)).num : null, need = M.decimalsFor(v), x;
+    if (spec && /^(today|inc|cap)$/.test(key) && need > spec.decimals) M.setDecimals(spec, getPath(it, path), need);  // 2.5 kg stays 2.5
+    var r = getPath(it, path), dec = spec ? spec.decimals : 0;
+    if (key === 'min' || key === 'sec') {
+      var len = M.valueAt(r, TODAY), n = Math.max(0, parseInt(v, 10) || 0);
+      var mins = key === 'min' ? n : Math.floor(len / 60), secs = key === 'sec' ? Math.min(59, n) : len % 60;
+      r = M.setToday(r, Math.min(65535, mins * 60 + secs), TODAY);
+    } else if (key === 'today') {
+      if ((x = M.toScaled(v, dec)) === null) return false;
+      r = M.setToday(r, x, TODAY);
+    } else if (key === 'inc') {
+      if ((x = v.trim() ? M.toScaled(v, dec) : 0) === null) return false;
+      r = M.rebase(r, x, r.every || (x ? 7 : 0), TODAY);  // a new increase starts weekly
+    } else if (key === 'every' || key === 'per') {
+      var was = perOf(path, r), per = key === 'per' ? v : was;
+      var k = key === 'every' ? Math.max(0, parseInt(v, 10) || 0) : r.every ? (was === 'w' ? r.every / 7 : r.every) : 0;
+      S.edit.per[path] = per;
+      r = M.rebase(r, r.inc, per === 'w' ? k * 7 : k, TODAY);
+    } else {
+      if ((x = v.trim() ? M.toScaled(v, dec) : 0) === null) return false;
+      r = M.setCap(r, x, TODAY);
+    }
+    setPath(it, path, r);
+    return true;
   }
 
   function onClick(ev) {
@@ -465,7 +574,7 @@
       case 'edit': openEditor(find(id), false); return;
       case 'new': {
         var n = M.newItem(+v, S.nextId++, TODAY);
-        if (n.kind === K.ROUTINE) n.steps.push(M.newStep(ST.MANUAL));
+        if (n.kind === K.ROUTINE) n.steps.push(M.newStep(ST.MANUAL, TODAY));
         openEditor(n, true);
         return;
       }
@@ -482,16 +591,33 @@
         if (f === 'ladder') {
           S.edit.ladderMode = v;
           if (v !== 'custom') it.ladder = M.LADDERS[v].slice();
-        } else if ((m = /^steps\.(\d+)\.type$/.exec(f))) {
-          var s = it.steps[+m[1]], fresh = M.newStep(+v);
-          s.type = +v; s.dur = s.type === ST.TIMED ? (s.dur || fresh.dur) : 0; s.num = s.type === ST.NUMBER ? (s.num.step ? s.num : fresh.num) : fresh.num;
+        } else if ((m = /^(steps\.\d+(?:\.alt)?)\.type$/.exec(f))) {
+          var s = getPath(it, m[1]), fresh = M.newStep(+v, TODAY);
+          if (s.type !== +v) {
+            s.type = +v; s.flags = 0; s.amount = fresh.amount; s.weight = fresh.weight;
+            s.num = s.type === ST.NUMBER && s.num.step ? s.num : fresh.num;
+          }
+        } else if ((m = /^steps\.(\d+)\.show$/.exec(f))) {
+          var sh = it.steps[+m[1]].show;
+          if (+v && !sh.every) { sh.every = 2; sh.since = TODAY; }
+          if (!+v) sh.every = 0;
+        } else if (f === 'repeat') {
+          if (+v && !it.repeat.every) it.repeat = { every: 2, since: TODAY };
+          if (!+v) it.repeat.every = 0;
         } else {
           it[f] = +v;
         }
         break;
       }
       case 'toggle': {
-        var tf = b.getAttribute('data-f'), bit = tf === 'silent' ? F.SILENT : tf === 'anytime' ? F.ANYTIME : F.ASK;
+        var tf = b.getAttribute('data-f'), bit = tf === 'silent' ? F.SILENT : tf === 'anytime' ? F.ANYTIME : F.ASK, tm;
+        if ((tm = /^(steps\.\d+(?:\.alt)?)\.(qty|weight)$/.exec(tf))) {  // what a Do it step counts
+          var ts = getPath(it, tm[1]), sb = tm[2] === 'qty' ? M.SFLAG.QTY : M.SFLAG.WEIGHT;
+          ts.flags ^= sb;
+          if ((ts.flags & sb) && sb === M.SFLAG.QTY && !ts.amount.start) ts.amount = M.setToday(ts.amount, 10, TODAY);
+          if ((ts.flags & sb) && sb === M.SFLAG.WEIGHT && !ts.num.unit) ts.num = { step: 0, min: 0, max: 0, decimals: 1, unit: 'kg' };
+          break;
+        }
         it.flags ^= bit;
         if (bit === F.ASK && (it.flags & F.ASK) && !it.num.step) it.num = M.newStep(ST.NUMBER).num;
         break;
@@ -504,7 +630,14 @@
         it.ladder.sort(function (x, y) { return y - x; });
         break;
       }
-      case 'step-add': it.steps.push(M.newStep(ST.MANUAL)); break;
+      case 'step-add': it.steps.push(M.newStep(ST.MANUAL, TODAY)); break;
+      case 'alt-add': {
+        var na = M.newStep(ST.MANUAL, TODAY);
+        delete na.show; delete na.alt;
+        it.steps[+v].alt = na;
+        break;
+      }
+      case 'alt-del': it.steps[+v].alt = null; break;
       case 'step-del': it.steps.splice(+v, 1); break;
       case 'step-move': {
         var i = +v, k = i + +b.getAttribute('data-d'), tmp = it.steps[i];
@@ -514,7 +647,7 @@
       case 'edit-cancel': closeEditor(); return;
       case 'edit-done': {
         var cleaned = M.clean(it);
-        S.errors = M.validate(cleaned);
+        S.errors = editErrors(it);
         if (S.errors.length) { render(); var er = app.querySelector('.errors'); if (er) er.scrollIntoView(); return; }
         var old = find(cleaned.id);
         if (old) S.items[S.items.indexOf(old)] = cleaned;
@@ -565,7 +698,9 @@
         }
         close(null);
         return;
-      case 'save': close(result()); return;
+      case 'save':
+        if (M.scheduleErrors(S.items).length) { S.tab = 'schedule'; render(); window.scrollTo(0, 0); return; }  // the watch would refuse it
+        close(result()); return;
     }
     render();
   }

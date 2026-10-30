@@ -31,12 +31,54 @@ void test_codec(void) {
   // step round trip
   CcStep s, s2;
   memset(&s, 0, sizeof(s));
-  s.type = CC_STEP_NUMBER; s.dur_s = 90; s.num.step = 5; s.num.min = -100; s.num.max = 99999;
+  s.type = CC_STEP_NUMBER; s.amount.start = 90; s.alt = CC_NO_ALT; s.num.step = 5; s.num.min = -100; s.num.max = 99999;
   s.num.decimals = 2; strcpy(s.num.unit, "reps"); strcpy(s.name, "Stretch hamstrings and hips");
   n = cc_pack_step(&s, buf, sizeof(buf));
   T_TRUE(n > 0 && n <= 256);
   T_TRUE(cc_unpack_step(buf, n, &s2));
   T_TRUE(memcmp(&s, &s2, sizeof(s)) == 0);
+
+  // V2 items carry alternatives and a rhythm; a V1 item reads with neither
+  CcItem iv2, ivb;
+  fill_item(&iv2);
+  iv2.kind = CC_ROUTINE; iv2.step_count = 3; iv2.alt_count = 1; iv2.every_days = 3; iv2.every_since = 20749;
+  n = cc_pack_item(&iv2, buf, sizeof(buf));
+  T_TRUE(n > 0 && buf[0] == CC_CODEC_V2);
+  memset(&ivb, 0xAB, sizeof(ivb));
+  T_TRUE(cc_unpack_item(buf, n, &ivb));
+  ivb.step_first = iv2.step_first;  // never stored
+  T_TRUE(memcmp(&iv2, &ivb, sizeof(iv2)) == 0);
+  iv2.step_count = 21; n = cc_pack_item(&iv2, buf, sizeof(buf)); T_TRUE(!cc_unpack_item(buf, n, &ivb));
+  iv2.step_count = 3; iv2.alt_count = 4; n = cc_pack_item(&iv2, buf, sizeof(buf)); T_TRUE(!cc_unpack_item(buf, n, &ivb));  // more alternatives than steps
+  iv2.alt_count = 1; iv2.every_days = 31; n = cc_pack_item(&iv2, buf, sizeof(buf)); T_TRUE(!cc_unpack_item(buf, n, &ivb));
+  // 1.4.1's record for "Tidy desk" (anytime task): version 1, no new fields
+  const uint8_t item_v1[] = { 1, 5, 0, CC_TASK, CC_CRITICAL, CC_F_ANYTIME, 0x7F, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0,
+                              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                              9, 'T', 'i', 'd', 'y', ' ', 'd', 'e', 's', 'k' };
+  memset(&ivb, 0xAB, sizeof(ivb));
+  T_TRUE(cc_unpack_item(item_v1, sizeof(item_v1), &ivb));
+  T_EQ(ivb.id, 5); T_EQ(ivb.order, 4); T_STR(ivb.name, "Tidy desk");
+  T_EQ(ivb.alt_count, 0); T_EQ(ivb.every_days, 0); T_EQ(ivb.every_since, 0);
+
+  // V2 steps: every field; a V1 step's length becomes its amount
+  CcStep f, f2;
+  memset(&f, 0, sizeof(f));
+  f.type = CC_STEP_MANUAL; f.flags = CC_SF_QTY | CC_SF_WEIGHT; f.alt = 5; f.show_every = 2; f.show_since = 20750;
+  f.amount = (CcRamp){ 20, 40, 20749, 1, 7 }; f.weight = (CcRamp){ 125, 0, 20749, 25, 28 };
+  f.num = (CcNumSpec){ 0, 0, 0, 1, "kg" };
+  strncpy(f.name, "Curls with a long name for the cut", CC_NAME_MAX - 1);
+  cc_utf8_trunc(f.name, CC_NAME_MAX);
+  n = cc_pack_step(&f, buf, sizeof(buf));
+  T_TRUE(n > 0 && n + 3 <= 100 && buf[0] == CC_CODEC_V2);
+  T_TRUE(cc_unpack_step(buf, n, &f2));
+  T_TRUE(memcmp(&f, &f2, sizeof(f)) == 0);
+  const uint8_t step_v1[] = { 1, CC_STEP_TIMED, 90, 0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  5, 'P', 'l', 'a', 'n', 'k' };
+  T_TRUE(cc_unpack_step(step_v1, sizeof(step_v1), &f2));
+  T_EQ(f2.type, CC_STEP_TIMED); T_EQ(f2.amount.start, 90); T_EQ(f2.amount.inc, 0); T_EQ(f2.alt, CC_NO_ALT);
+  T_EQ(f2.flags, 0); T_EQ(f2.show_every, 0); T_STR(f2.name, "Plank");
+  f.show_every = 31; n = cc_pack_step(&f, buf, sizeof(buf)); T_TRUE(!cc_unpack_step(buf, n, &f2));
+  f.show_every = 2; f.amount.every = 0; n = cc_pack_step(&f, buf, sizeof(buf)); T_TRUE(!cc_unpack_step(buf, n, &f2));
+  f.amount.every = 7; f.type = 3; n = cc_pack_step(&f, buf, sizeof(buf)); T_TRUE(!cc_unpack_step(buf, n, &f2));
 
   // settings round trip
   CcSettings c = CC_SETTINGS_DEFAULT, c2;
@@ -107,9 +149,9 @@ void test_codec(void) {
   // rejects
   fill_item(&a);
   n = cc_pack_item(&a, buf, sizeof(buf));
-  buf[0] = 2;
+  buf[0] = 3;
   T_TRUE(!cc_unpack_item(buf, n, &b));               // wrong version
-  buf[0] = CC_CODEC_V1;
+  buf[0] = CC_CODEC_V2;
   T_TRUE(!cc_unpack_item(buf, 10, &b));              // short buffer
   a.until_min = 500;                                 // reminder window ends before it starts
   n = cc_pack_item(&a, buf, sizeof(buf));
@@ -120,13 +162,13 @@ void test_codec(void) {
   T_EQ(cc_pack_item(&a, buf, 20), -1);               // buffer too small to pack
 
   // run and history records
-  CcRun run = { 7, 20749, 1, 2, 4, 1, 1792738860, 1792738800, 40 }, run2;
+  CcRun run = { 7, 20749, 1, 2, 4, 1, 1792738860, 1792738800, 40, { 0, 1, 2, 3 }, 12, 2 }, run2;
   n = cc_pack_run(&run, buf, sizeof(buf));
   T_TRUE(n > 0 && n <= 256);
   T_TRUE(cc_unpack_run(buf, n, &run2));
   T_EQ(run2.item_id, 7); T_EQ(run2.day, 20749); T_EQ(run2.active, 1); T_EQ(run2.step, 2);
   T_EQ(run2.step_count, 4); T_EQ(run2.paused, 1); T_EQ(run2.step_end, 1792738860);
-  T_EQ(run2.advanced_at, 1792738800); T_EQ(run2.paused_left, 40);
+  T_EQ(run2.advanced_at, 1792738800); T_EQ(run2.paused_left, 40); T_EQ(run2.value, 12); T_EQ(run2.swapped, 2);
   buf[0] = 9;
   T_TRUE(!cc_unpack_run(buf, n, &run2));
 

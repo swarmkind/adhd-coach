@@ -23,7 +23,7 @@ test('items pack and unpack like the C records', function () {
 test('an item packed from steps writes their count', function () {
   var it = JSON.parse(JSON.stringify(V.items[0].json));
   delete it.stepCount;
-  it.steps = V.steps.map(function (s) { return s.json; });
+  it.steps = V.steps.filter(function (s) { return s.item === it.id; }).map(function (s) { return s.json; });
   assert.equal(toHex(codec.packItem(it)), V.items[0].hex);
 });
 
@@ -35,9 +35,22 @@ test('a long name is cut at 31 bytes like the watch', function () {
 
 test('steps carry their item and index', function () {
   V.steps.forEach(function (v) {
-    assert.equal(toHex(codec.packStepAt(v.item, v.index, v.json)), v.hex);
-    assert.deepEqual(codec.unpackStepAt(fromHex(v.hex)), { item: v.item, index: v.index, step: v.json });
+    assert.equal(toHex(codec.packStepAt(v.item, v.index, v.json, v.alt)), v.hex);
+    assert.deepEqual(codec.unpackStepAt(fromHex(v.hex)), { item: v.item, index: v.index, alt: v.alt, step: v.json });
   });
+});
+
+test('1.4.1 records read with no step-ups, alternatives or rhythm', function () {
+  // item 1, index 0, V1 timed step: 90 s, no number, "Plank"
+  var b = [1, 0, 0, 1, 1, 90, 0].concat([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [5], codec.utf8Encode('Plank'));
+  var u = codec.unpackStepAt(b);
+  assert.equal(u.alt, null);
+  assert.deepEqual(u.step.amount, { start: 90, cap: 0, since: 0, inc: 0, every: 0 });
+  assert.deepEqual(u.step.show, { every: 0, since: 0 });
+  var it = codec.unpackItem(fromHex(V.items[3].hex).map(function (x, i) { return i === 0 ? 1 : x; }).slice(0, -6));
+  assert.equal(it.name, 'Tidy desk');
+  assert.equal(it.altCount, 0);
+  assert.deepEqual(it.repeat, { every: 0, since: 0 });
 });
 
 test('settings carry their edit time', function () {
@@ -96,4 +109,36 @@ test('utf8Cut never splits a character', function () {
   assert.equal(codec.utf8Cut(s, 8), 'abcé');
   assert.equal(codec.utf8Cut(s, 9), s);
   assert.equal(codec.utf8Bytes(s), 9);
+});
+
+// The Workout vectors: Curls (alternative Shoulder press at record 2) and Plank.
+function workout() {
+  var v = V.steps.filter(function (s) { return s.item === 2; });
+  var it = JSON.parse(JSON.stringify(V.items[5].json));
+  delete it.stepCount; delete it.altCount;
+  var press = JSON.parse(JSON.stringify(v[2].json));
+  delete press.show;
+  it.steps = [JSON.parse(JSON.stringify(v[0].json)), JSON.parse(JSON.stringify(v[1].json))];
+  it.steps[0].alt = press;
+  it.steps[1].alt = null;
+  return { item: it, hex: v.map(function (s) { return s.hex; }) };
+}
+
+test('alternatives go out after the main steps, as the C records lay them out', function () {
+  var w = workout();
+  assert.equal(w.item.name, 'Workout');
+  assert.equal(toHex(codec.packItem(w.item)), V.items[5].hex);
+  assert.deepEqual(codec.stepRecords(w.item).map(toHex), w.hex);
+});
+
+test('withSteps nests each alternative back into its main step', function () {
+  var w = workout();
+  var flat = w.hex.map(function (h) { return codec.unpackStepAt(fromHex(h)); });
+  var items = codec.withSteps([codec.unpackItem(fromHex(V.items[5].hex))], flat);
+  assert.equal(items[0].steps.length, 2);
+  assert.equal(items[0].steps[0].alt.name, 'Shoulder press');
+  assert.ok(!('show' in items[0].steps[0].alt) && !('alt' in items[0].steps[0].alt));
+  assert.equal(items[0].steps[1].alt, null);
+  assert.ok(!('stepCount' in items[0]) && !('altCount' in items[0]));
+  assert.deepEqual(items[0].steps, w.item.steps);
 });

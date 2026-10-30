@@ -1,10 +1,12 @@
 // The phone's master copy: schedule, number logs, daily outcomes, voice notes and note edits
 // waiting for the watch. Each part is one localStorage value, always written with setItem.
 var codec = require('./codec.js');
+var model = require('./planner_model.js');
 
 var KEYS = ['meta', 'sched', 'logs', 'hist', 'notes', 'ops'];
 var HIST_DAYS = 365;
 var STEP_NONE = 255;  // a number logged on the item itself, not a routine step
+var LOG_WEIGHT = 0x40;  // with a step index: the weight of that step
 var PLANNER_DAYS = 60;  // the planner's history shows this many days
 var PLANNER_BUDGET = 200 * 1024;  // bytes of notes, logs and days in the planner page
 
@@ -29,6 +31,7 @@ Store.prototype.load = function () {
     this.save('meta');
   }
   this.sched = this.read('sched') || { rev: 0, nextId: 1, items: [], settings: copy(codec.SETTINGS_DEFAULT), settingsUtc: 0 };
+  this.sched.items = this.sched.items.map(model.upgrade);  // 1.4.1 schedules open unchanged
   this.logs = this.read('logs') || [];
   this.hist = this.read('hist') || [];
   this.notes = this.read('notes') || [];
@@ -56,7 +59,7 @@ function maxId(items) {
 
 // The phone had no schedule: the watch's (sample or earlier) becomes the master copy at rev 1.
 Store.prototype.adopt = function (items, settings, utc) {
-  this.sched.items = copy(items);
+  this.sched.items = copy(items).map(model.upgrade);
   this.sched.rev = 1;
   this.sched.nextId = Math.max(this.sched.nextId || 1, maxId(items) + 1);
   if (settings) { this.sched.settings = copy(settings); this.sched.settingsUtc = utc || 0; }
@@ -71,12 +74,23 @@ Store.prototype.takeSettings = function (settings, utc) {
   return true;
 };
 
+// Step `i` among an item's records: a main step, or past them the alternatives in their main steps' order.
+function stepAt(steps, i) {
+  if (i < steps.length) return steps[i];
+  var rank = i - steps.length;
+  for (var j = 0; j < steps.length; j++) if (steps[j].alt && rank-- === 0) return steps[j].alt;
+  return null;
+}
+
+// A weight and a number show their own unit; a quantity has none; a timer's length is in seconds.
 Store.prototype.labelFor = function (itemId, step) {
   var it = this.item(itemId);
   if (!it) return { label: 'Item ' + itemId, unit: '', dec: 0 };
-  var s = step !== STEP_NONE && it.steps ? it.steps[step] : null;
-  var num = s ? s.num : it.num;
-  return { label: s ? it.name + ' · ' + s.name : it.name, unit: num ? num.unit : '', dec: num ? num.decimals : 0 };
+  var s = step !== STEP_NONE ? stepAt(it.steps || [], step & 0x3F) : null;
+  if (!s) return { label: it.name, unit: it.num ? it.num.unit : '', dec: it.num ? it.num.decimals : 0 };
+  var label = it.name + ' · ' + s.name;
+  if ((step & LOG_WEIGHT) || s.type === model.STEP.NUMBER) return { label: label, unit: s.num.unit, dec: s.num.decimals };
+  return { label: label, unit: s.type === model.STEP.TIMED ? 's' : '', dec: 0 };
 };
 
 function logKey(e) { return e.t + '|' + e.item + '|' + e.step + '|' + e.v; }
@@ -182,8 +196,9 @@ function sameJSON(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 // The planner closed with Save. `now` is UTC seconds.
 Store.prototype.applyPlanner = function (res, now) {
   var changed = false;
-  if (res.items && !sameJSON(res.items, this.sched.items)) {
-    this.sched.items = copy(res.items);
+  var items = res.items && copy(res.items).map(model.upgrade);
+  if (items && !sameJSON(items, this.sched.items)) {
+    this.sched.items = items;
     changed = true;
   }
   if (res.settings && !sameJSON(res.settings, this.sched.settings)) {

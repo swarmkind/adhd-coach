@@ -4,6 +4,7 @@ var codec = require('./codec.js');
 
 var CMD = { HELLO: 1, UP: 2, UP_END: 3, ACK: 4, SCHED: 5, SCHED_END: 6, OPS: 7, DONE: 8 };
 var SILENCE_MS = 12000, BUSY_RETRY_MS = 30000;
+var RESEND_MS = [500, 2000, 5000];  // a failed send tries again; the watch can be busy for ~4 s after an update
 
 function u32(w, v) { w.push(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255); }
 
@@ -18,6 +19,8 @@ function Session(store, send, timers, log) {
   this.sending = false;
   this.again = false;
   this.timer = null;
+  this.gen = 0;        // bumped by end(): callbacks from an ended sync do nothing
+  this.resend = null;
 }
 
 Session.CMD = CMD;
@@ -29,15 +32,22 @@ Session.prototype.post = function (msg) {
 
 Session.prototype.pump = function () {
   if (this.sending || !this.queue.length) return;
-  var self = this, msg = this.queue.shift(), tries = 0;
+  var self = this, msg = this.queue.shift(), tries = 0, gen = this.gen;
   this.sending = true;
   function go() {
+    self.resend = null;
     self.send(msg, function () {
+      if (gen !== self.gen) return;
       self.sending = false;
       self.alive();
       self.pump();
     }, function () {
-      if (++tries < 2) { self.timers.set(go, 500); return; }
+      if (gen !== self.gen) return;
+      if (tries < RESEND_MS.length) {
+        self.alive();  // a refusal is an answer: the silence timer starts again
+        self.resend = self.timers.set(go, RESEND_MS[tries++]);
+        return;
+      }
       self.sending = false;
       self.end('send failed');
     });
@@ -56,6 +66,9 @@ Session.prototype.end = function (why) {
   if (why) this.log('sync: ' + why);
   this.state = 'idle';
   this.queue = [];
+  this.gen++;
+  this.sending = false;
+  if (this.resend) { this.timers.clear(this.resend); this.resend = null; }
   this.alive();
   if (this.again) { this.again = false; this.hello(); }
 };
@@ -97,21 +110,10 @@ Session.prototype.collect = function (data) {
   }
 };
 
-function withSteps(items, steps) {
-  return items.map(function (it) {
-    var out = {}, k;
-    for (k in it) if (k !== 'stepCount') out[k] = it[k];
-    out.steps = [];
-    for (var i = 0; i < steps.length; i++) if (steps[i].item === it.id) out.steps[steps[i].index] = steps[i].step;
-    out.steps.length = it.stepCount;
-    return out;
-  });
-}
-
 Session.prototype.upEnd = function (watchRev) {
   var st = this.store, u = this.up, adopted = 0, i;
   if (st.sched.rev === 0) {
-    st.adopt(withSteps(u.items, u.steps), u.settings && u.settings.settings, u.settings ? u.settings.utc : 0);
+    st.adopt(codec.withSteps(u.items, u.steps), u.settings && u.settings.settings, u.settings ? u.settings.utc : 0);
     adopted = st.sched.rev;
     watchRev = adopted;
     this.log('sync: adopted ' + u.items.length + ' items rev ' + adopted);
@@ -145,7 +147,7 @@ Session.prototype.sendSchedule = function () {
   for (var i = 0; i < s.items.length; i++) {
     var it = s.items[i];
     list.push({ type: T.ITEM, rec: codec.packItem(it) });
-    for (var j = 0; j < (it.steps || []).length; j++) list.push({ type: T.STEP, rec: codec.packStepAt(it.id, j, it.steps[j]) });
+    codec.stepRecords(it).forEach(function (rec) { list.push({ type: T.STEP, rec: rec }); });
   }
   list.push({ type: T.SETTINGS, rec: codec.packSettingsAt(s.settings, s.settingsUtc) });
   var msgs = codec.framesPut(list);

@@ -3,7 +3,8 @@
 #include "core/cc_state.h"
 
 const CcItem *coach_item(uint16_t id);  // NULL if absent
-int coach_slot(uint16_t id);            // index into g_items / g_steps, or -1
+int coach_slot(uint16_t id);            // index into g_items, or -1
+const CcStep *coach_steps(int slot);    // the item's steps in the pool: main steps, then alternatives
 
 // Roll the day state over to `now`'s day if needed: sweep the old day, push its outcomes to history.
 void coach_ensure_today(cc_sec now);

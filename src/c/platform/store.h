@@ -10,7 +10,7 @@
 
 extern CcItem *g_items;                  // [CC_MAX_ITEMS] on the heap, like the steps
 extern int g_nitems;
-extern CcStep (*g_steps)[CC_MAX_STEPS];  // [CC_MAX_ITEMS] on the heap: the app image must stay under 64 KB
+extern CcStep *g_pool;                   // [CC_POOL_MAX] on the heap, every item's steps (cc_pool_layout)
 extern CcDay *g_day;                     // on the heap, like the items
 extern CcRun g_run;
 extern CcSettings g_cfg;
@@ -27,7 +27,9 @@ void store_save_focus(void);
 void store_save_alarms(void);
 void store_save_todos(void);
 
-void store_log_number(uint16_t item, uint8_t step, int32_t value);
+// A logged value for History. `remember` keeps it as the "last …" a number entry shows.
+void store_log(uint16_t item, uint8_t step, int32_t value, bool remember);
+bool store_unlog(uint16_t item, uint8_t step);  // drops the newest entry if it is this step's (Undo)
 bool store_last_number(uint16_t item, uint8_t step, int32_t *value, int32_t *utc);
 void store_history_push(const CcOutcome *o, int n, int32_t day);  // 90-day ring
 

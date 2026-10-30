@@ -121,9 +121,9 @@ int cc_day_prune(CcDay *d, const CcItem items[], int n) {
   return dropped;
 }
 
-bool cc_stage_complete(const CcItem *items, int n, const uint16_t *step_mask) {
+bool cc_stage_complete(const CcItem *items, int n, const uint64_t *step_mask) {
   for (int i = 0; i < n; i++) {
-    uint16_t want = (uint16_t)((1u << items[i].step_count) - 1);
+    uint64_t want = (1ull << (items[i].step_count + items[i].alt_count)) - 1;
     if ((step_mask[i] & want) != want) return false;
   }
   return true;

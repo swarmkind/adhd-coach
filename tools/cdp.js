@@ -11,13 +11,14 @@ var spawn = require('child_process').spawn;
 var CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 var url = process.argv[2], steps = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 var outdir = process.argv[4] || '.';
+var WIDTH = +process.env.PLANNER_WIDTH || 412;  // CSS pixels, a phone's width
 
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 async function main() {
   var profile = fs.mkdtempSync(path.join(os.tmpdir(), 'coach-cdp-'));
   var chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + profile, '--no-first-run',
-    '--no-default-browser-check', '--hide-scrollbars', '--window-size=412,915', 'about:blank'], { stdio: 'ignore' });
+    '--no-default-browser-check', '--hide-scrollbars', '--window-size=' + WIDTH + ',915', 'about:blank'], { stdio: 'ignore' });
   try {
     var portFile = path.join(profile, 'DevToolsActivePort'), port;
     for (var i = 0; i < 100 && !port; i++) {
@@ -46,7 +47,7 @@ async function main() {
       if (r.exceptionDetails) throw new Error('eval failed: ' + (r.exceptionDetails.exception && r.exceptionDetails.exception.description));
       return r.result.value;
     }
-    await call('Emulation.setDeviceMetricsOverride', { width: 412, height: 915, deviceScaleFactor: 2, mobile: true });
+    await call('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: 915, deviceScaleFactor: 2, mobile: true });
     await call('Page.enable');
     await call('Page.navigate', { url: url });
     await sleep(800);
@@ -75,7 +76,7 @@ async function main() {
         if (st.full) {
           var h = await evaluate('Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)');
           params.captureBeyondViewport = true;
-          params.clip = { x: 0, y: 0, width: 412, height: h, scale: 1 };
+          params.clip = { x: 0, y: 0, width: WIDTH, height: h, scale: 1 };
         }
         var shot = await call('Page.captureScreenshot', params);
         fs.writeFileSync(path.join(outdir, st.shot), Buffer.from(shot.data, 'base64'));

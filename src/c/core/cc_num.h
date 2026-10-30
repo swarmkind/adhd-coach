@@ -4,5 +4,9 @@
 
 int cc_num_format(int32_t v, uint8_t decimals, char *buf, int len);  // chars written, or -1 ("" in buf)
 
-// One press (dir +1 / -1) with acceleration: repeats < 10 -> 1 step, < 30 -> 5, else 10. Clamped to [min, max].
+// Held Up or Down repeats this often; cc_num_step speeds up from the 10th repeat (2 s).
+#define CC_NUM_REPEAT_MS 200
+
+// One press (dir +1 / -1) with acceleration: repeats < 10 -> 1 step, < 20 -> 2, < 30 -> 5, else 10.
+// Clamped to [min, max].
 int32_t cc_num_step(int32_t v, const CcNumSpec *s, int dir, uint16_t repeats);

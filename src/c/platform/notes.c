@@ -1,9 +1,8 @@
 #include <pebble.h>
 #include "notes.h"
 #include "../core/cc_codec.h"
+#include "../core/cc_keys.h"
 
-#define K_NOTE 6000      // 6000 + slot * 4 + part
-#define K_NOTE_TOMB 44
 #define NOTE_SLOTS NOTES_SLOTS
 
 static CcNoteSlot *s_slots;  // [NOTE_SLOTS] on the heap from the first use: the app image must stay under 64 KB
@@ -11,7 +10,7 @@ static bool s_ready;
 static uint8_t *s_buf;  // [PERSIST_DATA_MAX_LENGTH] on the heap from the first use
 static char *s_text;  // a scratch transcript for reading headers, on the heap from the first use
 
-static uint32_t key(int slot, int part) { return K_NOTE + slot * 4 + part; }
+static uint32_t key(int slot, int part) { return K_NOTE + slot * CC_NOTE_PARTS_MAX + part; }
 
 static void need_buf(void) {
   if (!s_buf) s_buf = malloc(PERSIST_DATA_MAX_LENGTH);

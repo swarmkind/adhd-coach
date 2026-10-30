@@ -261,3 +261,99 @@ An A/B walk: the same emulator snapshot and clock (Wed 28 Oct 22:30:05), the sam
 | Stack, LTO | Room left after the walk | 1,744 B used below `main` at the deepest, 2,180 B never touched |
 | 1.4.1 | Installs over the snapshot | Home matches 1.4.0 pixel for pixel |
 | Host tests | All pass | C 810 of 810, JS 50 of 50 |
+
+## Step-ups (1.5.0, 2026-10-30)
+
+Emulator walks, headless. The planner walks ran through `tools/cdp.js` at 360 px wide.
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Migration | 1.4.1 on a wiped emulator, Morning routine through Weight (30.3 kg), parked on step 4; install 1.5.0 | "schedule: migrated 6 items, 4 steps" once; a relaunch only reads | Pass |
+| Nothing moved | Home and the run screen after the update | Match 1.4.1 pixel for pixel apart from the clock; "paused · 4 of 4"; Weight "last 30.3 today" | Pass |
+| Quantity and weight | Demo build, Curls 21 at 10.0 kg | "21 × 10.0 kg", × drawn as lines, "or: Shoulder press" | Pass |
+| Count up | Up 3 times | 24 | Pass |
+| Swap | Hold Select | "Swap to Shoulder press" first; after it, "× 8" with "or: Curls" | Pass |
+| Every few days | Red light every 2 days, off today | Morning routine "1 of 5" | Pass |
+| Many steps | A 16-step routine | The bar shows 1 px gaps, "4 of 16", nothing clipped | Pass |
+| Planner editor | Add Curls (8, +1 every week; 10 kg, +1 every 4 weeks; or Shoulder press 8) and Red light every 2 days | Fields as typed; Done gives no errors; nothing wider than 360 px | Pass |
+| Planner Repeat | A timed task and an anytime task set to every 3 and every 2 days | No weekdays asked for; no errors; nothing wider than 360 px | Pass |
+| Planner to watch | Save that | "planner: saved, schedule rev 2"; "sync: schedule rev 2 6 items applied" | Pass |
+| On the watch | Start Morning routine, skip to step 5 | "5 of 6", "8 × 10.0 kg", "or: Shoulder press", "next: Red light" | Pass |
+| History | Curls logged with their weight | One series, "18 × 12.5 kg" in the headline and rows | Pass (preview page) |
+| A full pool | Save 40 items: 12 routines of 10 steps, each with an alternative (240 in the pool), and 28 tasks | 40 items in 31 messages, applied | Pass |
+| Heap at the sync | The same save, `heap_bytes_free()` logged before staging and at the lowest | 35,328 free before, 9,372 at the lowest (1.4.1 under the same check: 33,532 and 3,344) | Pass: 6 KB more room than 1.4.1 |
+| Voice notes survive | 1.4.1 on a wiped emulator, two dictated notes (slots 0 and 1), then 1.5.0 | Both notes open with their text; a third note, a relaunch, and the routines still have all their steps | Pass (the first review found step keys on the notes' range; moved to 7000) |
+| More than the pool | 1.4.1 with 20 routines of 12 steps and the sample's 4 (244), then 1.5.0 | "Big 20: steps past 240 dropped", "migrated 26 items, 240 steps" | Pass |
+| A run that no longer fits | Park Big 20 at step 10 of 12 on 1.4.1, then 1.5.0 keeps 8 of its steps | Home shows no paused run, nothing crashes | Pass |
+| Over the pool in the planner | Open the planner with the phone's 244 steps; Save | The limit shows on the Schedule tab and Save stays put; with 4 steps removed, Save applies | Pass |
+| Staging after notes | Save from the planner after a voice note in the same session | 1.4.1: "no memory for the schedule". 1.5.0: staged | Pass for 1.5.0 |
+| Host tests | `make -C test`, `make -C test js` | All pass | C 1,095 of 1,095, JS 69 of 69 |
+
+## A week on the fake clock (1.5.0, 2026-10-30)
+
+Fresh emulator, release build, a schedule of 4 routines and 3 tasks saved through the planner with fresh item ids (day results are kept by id, so reusing the sample's ids inherits their state). The watch clock was held at chosen times by running pebble-tool through a wrapper that shifts `time.time()` by a fixed offset, so installs, screenshots and button presses all keep the fake time. Raw VNC key presses (port 5901) caught the 5 s undo window, which `emu-button` is too slow for. Days walked: Fri 30 Oct, Sat 31 Oct, and Thu 5 Nov 23:59 into Fri 6 Nov.
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Step-ups over time | Pushups 20, +1 a week from 16 Oct | Fri 30 Oct "× 22", Fri 6 Nov "× 23" | Pass |
+| Quantity and weight apart | Curls 8 +1 a week from 23 Oct, 10 kg +2.5 every 4 weeks from 2 Oct | "9 × 12.5 kg", then "10 × 12.5 kg" | Pass |
+| Stop at | Farmer carry 20 kg +2.5 a week from 9 Oct, stop at 25; Plank 20 s +5 s every 2 days, stop at 40 | "25.0 kg" with only done on the rail; Plank 0:30, then 0:40 | Pass |
+| Every few days, steps | Red light every 2 from Fri, Sauna every 2 from Thu, Stretch every 3 | Fri "7 steps" in the alert and "1 of 7"; Sat "1 of 6" with Sauna; Fri 6 Nov "1 of 6" | Pass |
+| Every few days, items | Mobility every 3 from Sat; Water plants every 2 at 10:00; Laundry and Clean filter anytime | Today on Fri: Gym, Water plants, Long routine, Laundry. Sat: Gym, Cold shower, Mobility, Long routine, Clean filter | Pass |
+| No steps today | Cold shower, its one step every 2 from Thu | Fri: not in Today, nothing at 08:30. Sat: "08:30 · 1 steps" alert | Pass (wording, see below) |
+| Off-day alerts | Mobility 09:00 on Fri; Water plants 10:00 | Nothing at 09:00 on Fri; Water plants alerts at 10:00 | Pass |
+| Count and log | Down twice on "× 22", Select | 20 logged; Back on Farmer carry logs nothing | Pass |
+| Hold to count | Hold Up 1 s, 2 s; hold Down | +7, then +49; Down stops at 0 | Pass (fast, see below) |
+| Swap | Hold Select on Curls | "Swap to Shoulder press" first; "6 × 15.0 kg", "or: Curls"; "Swap to Curls" offered | Pass |
+| Swap a timer | Plank | "Wall sit" 0:15, "or: Plank" | Pass |
+| One run only | Start Gym again | Curls again, "or: Shoulder press" | Pass |
+| Park and resume | Swap, Leave, Start from Today | Back on step 2 as Shoulder press | Pass |
+| Midnight, run open | Start Gym Thu 23:59, Curls on screen | After 00:00 still "9 × 12.5 kg", "2 of 7", Red light still in; a new run says 10 and "of 6" | Pass |
+| Midnight, run parked | Long routine parked at 19 of 20 on Fri | Gone from home on Sat | Pass |
+| Twenty steps | Long routine | "1 of 20", 20 segments with gaps, "or: Long 3 alt" on step 3 | Pass |
+| History and CSV | After three runs | Pushups 20, 22, 22; "Shoulder press 6 × 15.0 kg"; Plank 30 s; Weigh in 50.3 kg; no Curls, no Farmer carry | Pass |
+| Planner messages | Increase −1; Stop at 21 under 22; show every 1; an unnamed alternative | Each message as in the spec | Pass |
+| Planner warning | Gym Mon to Fri, Stretch every 7 from a Saturday | "Step 7 never falls on a day this routine runs." | Pass |
+| Today and increase | Today 25, then increase 2 | Count from today; today stays 25 | Pass |
+
+Found (all fixed after the walk; see the next section):
+- An adjusted quantity goes back to the target after the hold-Select menu closes.
+- The Done screen offers an every-N anytime task on its off day: "or: Laundry" on Sat 31 Oct and Fri 6 Nov.
+- A timer that ends, is undone and runs again logs twice: Plank 08:09 and 08:10.
+- With Decimals 0, an increase of 2.5 becomes 2 with no message.
+- Alerts say "1 steps" (the 1.4.1 wording; rhythms make it common).
+- A parked run takes a planner edit to its numbers (8 instead of 6) but keeps its swap and place. The spec said a run keeps its numbers; the ruling after the walk is that edits win.
+- A parked run whose alternative was deleted ends; Start begins at step 1.
+- Holding to count speeds up fast for small counts: +7 in 1 s, +49 in 2 s.
+- In the planner, an error shown by Done stays until Done is pressed again.
+- The first sync after updating from 1.4.1 with 240 steps gives up while the watch migrates.
+
+## Fixes from the week walk (1.5.0, 2026-10-30)
+
+A fresh emulator with the fixed build and the same schedule, on the fake clock from Fri 30 Oct 07:45, then Sat 31 Oct 08:29. The last row ran on a wiped emulator on the real clock.
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Count after the menu | Pushups × 22, Down twice, hold Select, Back | × 20 | Pass |
+| Count after Leave | Leave, Select on home ("paused · 1 of 7") | × 20 | Pass |
+| Hold to count | Hold Up 1 s, 2 s, 4 s from 20 | Gentle: 24, 33, 62 (was +7 and +49) | Pass |
+| Count is logged | Select at 62 | History "Pushups 62" | Pass |
+| Edits win | Swap Curls, Leave, Shoulder press today 8 in the planner, resume | "8 × 15.0 kg", "or: Curls", 2 of 7 | Pass |
+| Alternative deleted | Leave on the swap, delete Curls' alternative, resume | Still "paused · 2 of 7"; resumes as "Curls 9 × 12.5 kg", no "or:" | Pass |
+| Undo a timer | Plank 0:30 runs out, Up within 5 s, run it again | One "Plank 30 s" in History and the CSV | Pass |
+| Done offer | Finish Gym on Fri; Cold shower on Sat | Fri "or: Laundry"; Sat "or: Clean filter" (Laundry is off) | Pass |
+| One step | Sat 08:30 | "08:30 · 1 step" | Pass |
+| Decimals | Farmer carry Decimals 0, then Increase "2.5" | Decimals 1, increase 2.5 (25), the box shows 2.5 | Pass |
+| Errors follow fixes | Blank step 1's name, Done; type a name. Increase −1 on Plank, Done; type 5 | Each message goes at once, the box with it | Pass |
+| First sync after the update | 1.4.1 with 26 items and 244 steps, install 1.5.0 | "migrated 26 items, 240 steps" in 3 s; two nacks, then hello, up and ack | Pass |
+| Host tests | `make -C test`, `make -C test js` | All pass | C 1,137 of 1,137, JS 72 of 72 |
+
+After the final review's fixes, on a fresh emulator from Fri 30 Oct 07:59:
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Edit the current step | Swap to Shoulder press, Down to 5, Leave; Shoulder press today 8 in the planner; resume | "8 × 15.0 kg", "or: Curls", 2 of 7 | Pass |
+| Edit another step | Down to 7, Leave; Pushups today 25; resume | "7 × 15.0 kg", still swapped | Pass |
+| Alternative deleted | Leave; delete Curls' alternative; resume | "Curls 9 × 12.5 kg", no "or:", 2 of 7 | Pass |
+| First sync after the update | As above, with the new sync code | Two nacks during the 3 s migration, then hello, up and ack | Pass |
+| Host tests | `make -C test`, `make -C test js` | All pass | C 1,162 of 1,162, JS 75 of 75 |
