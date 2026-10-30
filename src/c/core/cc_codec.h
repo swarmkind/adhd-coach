@@ -7,7 +7,8 @@
 #include "cc_focus.h"
 
 #define CC_CODEC_V1 1
-#define CC_CODEC_V2 2  // settings, items, steps and the run; the rest are still V1
+#define CC_CODEC_V2 2  // settings, items and steps; the rest are still V1
+#define CC_CODEC_V3 3  // the run
 #define CC_DAY_CHUNK 16
 #define CC_LOG_PER_CHUNK 20
 

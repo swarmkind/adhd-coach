@@ -258,3 +258,16 @@ test('sends that take long to fail are not cut short by the silence timer', func
   assert.equal(sent.length, 1);
   assert.equal(s.state, 'up');
 });
+
+test('the watch can ask for a sync, at once or after the one under way', function () {
+  var timers = new FakeTimers(), calls = [];
+  var s = new Session(new Store(new H.MemStorage()), function (msg, ok) { calls.push(msg); ok(); }, timers, function () {});
+  s.onMessage({ CMD: C.ASK });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].CMD, C.HELLO);
+  s.onMessage({ CMD: C.ASK });   // mid-sync: once this one ends
+  assert.equal(calls.length, 1);
+  s.end('test');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].CMD, C.HELLO);
+});

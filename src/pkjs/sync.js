@@ -2,7 +2,7 @@
 // HELLO, the watch's uploads, ACK, then the schedule and note edits if the watch needs them.
 var codec = require('./codec.js');
 
-var CMD = { HELLO: 1, UP: 2, UP_END: 3, ACK: 4, SCHED: 5, SCHED_END: 6, OPS: 7, DONE: 8 };
+var CMD = { HELLO: 1, UP: 2, UP_END: 3, ACK: 4, SCHED: 5, SCHED_END: 6, OPS: 7, DONE: 8, ASK: 9 };
 var SILENCE_MS = 12000, BUSY_RETRY_MS = 30000;
 var RESEND_MS = [500, 2000, 5000];  // a failed send tries again; the watch can be busy for ~4 s after an update
 
@@ -85,6 +85,7 @@ Session.prototype.hello = function () {
 
 Session.prototype.onMessage = function (p) {
   if (p.CMD === undefined) return;
+  if (p.CMD === CMD.ASK) { this.log('sync: the watch asked'); this.hello(); return; }  // it has something new
   this.alive();
   try {
     if (p.CMD === CMD.UP && this.state === 'up') this.collect(p.DATA || []);

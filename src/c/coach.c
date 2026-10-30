@@ -3,6 +3,7 @@
 #include "platform/store.h"
 #include "platform/clock.h"
 #include "platform/wake.h"
+#include "platform/sync.h"
 #include "platform/sample.h"
 #include "config.h"
 #include "ui/home_win.h"
@@ -27,10 +28,7 @@ void coach_ensure_today(cc_sec now) {
   // Parked on an earlier day, or its routine changed shape under it (a step that wouldn't load): that one is over.
   if (g_run.active && !run_win_showing()) {
     CcRun was = g_run;
-    if (!cc_run_alive(&g_run, g_items, g_nitems, g_pool, now)) {
-      g_run.active = 0;
-      g_run.step_end = CC_NEVER;
-    }
+    if (!cc_run_alive(&g_run, g_items, g_nitems, g_pool, now)) coach_run_ended(CC_LOG_RUN_LEFT);
     if (memcmp(&was, &g_run, sizeof(g_run))) store_save_run();
   }
   if (g_day->day == today) return;
@@ -40,6 +38,7 @@ void coach_ensure_today(cc_sec now) {
   int n = cc_rollover(g_day, g_items, g_nitems, today, out, CC_MAX_ITEMS);
   store_history_push(out, n, old);
   store_save_day();
+  sync_poke();  // the day's results, for the planner's History
   APP_LOG(APP_LOG_LEVEL_INFO, "rollover %d -> %d, %d outcomes", (int)old, (int)today, n);
 }
 
@@ -63,9 +62,8 @@ void coach_apply(uint16_t id, CcAction a, cc_sec occurrence) {
   cc_apply(st, it, a, now, occurrence, &g_cfg);
   store_save_day();
   if (g_run.active && g_run.item_id == id && (a == CC_A_DONE || a == CC_A_SKIP || a == CC_A_PAUSE)) {
-    g_run.active = 0;  // finished or skipped from elsewhere: the parked run is over
-    g_run.step_end = CC_NEVER;
-    store_save_run();
+    coach_run_ended(a == CC_A_DONE ? CC_LOG_RUN_DONE : a == CC_A_SKIP ? CC_LOG_RUN_SKIP : CC_LOG_RUN_LEFT);
+    store_save_run();  // finished or skipped from elsewhere: the parked run is over
   }
   APP_LOG(APP_LOG_LEVEL_INFO, "apply item %d action %d -> status %d count %d", id, a, st->status, st->count);
   ui_refresh_all();
@@ -74,6 +72,14 @@ void coach_apply(uint16_t id, CcAction a, cc_sec occurrence) {
 
 const CcStep *coach_steps(int slot) { return g_pool + g_items[slot].step_first; }
 
+void coach_run_ended(uint8_t how) {
+  if (!g_run.active) return;
+  store_log(g_run.item_id, how, cc_run_log_value(&g_run, clock_now_local()), false);
+  g_run.active = 0;
+  g_run.step_end = CC_NEVER;
+  sync_poke();
+}
+
 void coach_start(uint16_t id) {
   int slot = coach_slot(id);
   if (slot < 0) return;
@@ -81,6 +87,7 @@ void coach_start(uint16_t id) {
   coach_apply(id, CC_A_START, 0);
   const CcItem *it = &g_items[slot];
   if (it->kind != CC_ROUTINE || !it->step_count) return;
+  coach_run_ended(CC_LOG_RUN_LEFT);  // another routine's parked run, or this one's from an earlier day
   cc_run_start(&g_run, it, coach_steps(slot), clock_now_local());
   store_save_run();
   run_win_open();

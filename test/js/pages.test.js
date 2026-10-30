@@ -73,6 +73,24 @@ test('exported numbers and days repeat the CSV header in every part and lose no 
   });
 });
 
+test('exported routines group the whole log and repeat the header in every part', function () {
+  var st = heavy(1), t = 1761200000;
+  for (var i = 0; i < 400; i++) {
+    st.logs.push({ t: t + i * 10, item: 1, step: 0x80, v: 1, label: 'Morning routine', stepName: 'Pushups' });
+    st.logs.push({ t: t + i * 10 + 5, item: 1, step: 0xBF, v: 1 << 25 | 1 << 20 | 300, label: 'Morning routine' });
+  }
+  var whole = M.csvRuns(st.logs), header = whole.slice(0, whole.indexOf('\n'));
+  var parts = pages.exportParts(M, st, 'runs', 8 * 1024);
+  assert.ok(parts.length > 1);
+  var rows = [];
+  parts.forEach(function (p) {
+    assert.equal(p.slice(0, header.length + 1), header + '\n');
+    rows.push(p.slice(header.length + 1));
+  });
+  assert.equal(header + '\n' + rows.join('\n'), whole);
+  assert.equal(whole.split('\n').length, 401);
+});
+
 test('an export page carries its part, the number of parts and the text, under the URL limit', function () {
   var st = heavy(3);
   var url = pages.exportUrl(PAGE, M, st, 'notes', 2);

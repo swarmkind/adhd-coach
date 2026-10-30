@@ -8,6 +8,7 @@
 #include "../platform/clock.h"
 #include "../platform/buzz.h"
 #include "../platform/wake.h"
+#include "../platform/sync.h"
 #include "../core/cc_run.h"
 #include "../core/cc_num.h"
 #include "../core/cc_fires.h"
@@ -214,14 +215,13 @@ static Layer *s_step_canvas;
 static FitText *s_step_title;
 static AppTimer *s_step_timer;
 static NumState s_num;
-static bool s_value_dirty;  // g_run.value changed since the run was last saved
 static const CcNumSpec QTY_SPEC = { 1, 0, 9999, 0, "" };
 static char s_swap_label[CC_NAME_MAX + 8];
 static int s_slot = -1;
 static bool s_menu_open;
 static int s_menu_choice;
 
-enum { M_SWAP, M_LEAVE, M_FINISH, M_SKIP };
+enum { M_STEP, M_SWAP, M_FINISH, M_SKIP };
 
 static const CcStep *steps(void) { return coach_steps(s_slot); }
 static const CcStep *cur(void) { return cc_run_cur(&g_run, steps()); }
@@ -230,17 +230,22 @@ static const CcStep *other(void) { return cc_run_other(&g_run, &g_items[s_slot],
 static bool has_qty(const CcStep *s) { return s->type == CC_STEP_MANUAL && (s->flags & CC_SF_QTY); }
 static bool has_weight(const CcStep *s) { return s->type == CC_STEP_MANUAL && (s->flags & CC_SF_WEIGHT); }
 
+// Each step's outcome, so History can show how a run went: done (1) or skipped (0). Undo takes it back.
+static void log_outcome(uint8_t index, bool done) { store_log(g_items[s_slot].id, CC_LOG_STEP | index, done, false); }
+
 // A Do it step's quantity and weight, logged as it is done.
 static void log_done(const CcStep *s) {
   uint16_t id = g_items[s_slot].id;
   if (has_qty(s)) store_log(id, cur_index(), cc_run_qty(&g_run, s), false);
   if (has_weight(s)) store_log(id, cur_index() | CC_LOG_WEIGHT, cc_ramp_at(&s->weight, g_run.day), false);
+  log_outcome(cur_index(), true);
 }
 
-// A timer that steps up logs the length it ran, so History shows the climb; Undo takes it back.
+// A timer ran out: done. One that steps up logs the length it ran, so History shows the climb.
 static bool logs_length(const CcStep *s) { return s->type == CC_STEP_TIMED && s->amount.inc; }
 static void log_timer(const CcStep *s, uint8_t index) {
   if (logs_length(s)) store_log(g_items[s_slot].id, index, cc_ramp_at(&s->amount, g_run.day), false);
+  log_outcome(index, true);
 }
 static bool undo_offered(cc_sec now) { return g_run.advanced_at && now - g_run.advanced_at <= CC_UNDO_S; }
 
@@ -248,6 +253,7 @@ static void finish_run(bool done) {
   cc_sec now = clock_now_local();
   const CcItem *it = &g_items[s_slot];
   bool counts = cc_run_counts_for_today(&g_run, cc_day_of(now));
+  store_log(it->id, done ? CC_LOG_RUN_DONE : CC_LOG_RUN_SKIP, cc_run_log_value(&g_run, now), false);
   g_run.active = 0;
   g_run.step_end = CC_NEVER;
   store_save_run();
@@ -255,6 +261,7 @@ static void finish_run(bool done) {
   if (counts) coach_apply(it->id, done ? CC_A_DONE : CC_A_SKIP, 0);
   window_stack_remove(s_step_win, false);
   if (done) done_open(it->name);
+  sync_poke();
 }
 
 static void schedule_tick(void);
@@ -270,11 +277,11 @@ static void enter_step(void) {
   schedule_tick();
 }
 
-// After a step change from a button: save, then finish or show the new step.
+// After a step change from a button: save, then finish (skipped if no step was done) or show the new step.
 static void after_change(CcRunEvent ev) {
   store_save_run();
   wake_rearm();
-  if (ev == CC_RUN_FINISHED) finish_run(true);
+  if (ev == CC_RUN_FINISHED) finish_run(g_run.done != 0);
   else enter_step();
 }
 
@@ -353,7 +360,7 @@ static void step_draw(Layer *layer, GContext *ctx) {
   cc_sec now = clock_now_local();
   const CcStep *s = cur();
   poster_draw_background(ctx, b, bg);
-  poster_draw_back_hint(ctx, "skip");
+  poster_draw_back_hint(ctx, "leave");
 
   char pos[12];
   snprintf(pos, sizeof(pos), "%d of %d", g_run.step + 1, g_run.step_count);
@@ -423,6 +430,7 @@ static void step_select(ClickRecognizerRef r, void *ctx) {
       break;
     case CC_STEP_NUMBER:
       num_save(&s_num);
+      log_outcome(cur_index(), true);
       after_change(cc_run_next(&g_run, steps(), now));
       break;
     default:
@@ -442,14 +450,16 @@ static void value_change(int dir, ClickRecognizerRef r) {
   } else {
     return;
   }
-  s_value_dirty = true;
   layer_mark_dirty(s_step_canvas);
 }
 
 static void step_up(ClickRecognizerRef r, void *ctx) {
   cc_sec now = clock_now_local();
+  bool ran = g_run.step && (g_run.done >> (g_run.step - 1) & 1);  // a timer ran out, rather than a skip
   if (!(r && click_recognizer_is_repeating(r)) && undo_offered(now) && cc_run_undo(&g_run, steps(), now)) {
-    if (logs_length(cur())) store_unlog(g_items[s_slot].id, cur_index());  // it runs again and logs then
+    uint16_t id = g_items[s_slot].id;
+    store_unlog(id, CC_LOG_STEP | cur_index());
+    if (ran && logs_length(cur())) store_unlog(id, cur_index());  // it runs again and logs then
     after_change(CC_RUN_NONE);
     return;
   }
@@ -458,8 +468,15 @@ static void step_up(ClickRecognizerRef r, void *ctx) {
 
 static void step_down(ClickRecognizerRef r, void *ctx) { value_change(-1, r); }
 
-static void step_back(ClickRecognizerRef r, void *ctx) {  // skip this step, nothing logged
-  after_change(cc_run_next(&g_run, steps(), clock_now_local()));
+// On without doing it: logged as skipped, and Up takes it back for a few seconds.
+static void skip_step(void) {
+  log_outcome(cur_index(), false);
+  after_change(cc_run_skip(&g_run, steps(), clock_now_local()));
+}
+
+static void step_back(ClickRecognizerRef r, void *ctx) {  // leave: the run stays parked, and home offers it
+  window_stack_remove(s_step_win, true);
+  sync_poke();
 }
 
 static void menu_perform(ActionMenu *menu, const ActionMenuItem *action, void *ctx) {
@@ -469,8 +486,8 @@ static void menu_perform(ActionMenu *menu, const ActionMenuItem *action, void *c
 static void menu_closed(ActionMenu *menu, const ActionMenuItem *performed, void *ctx) {
   action_menu_hierarchy_destroy(action_menu_get_root_level(menu), NULL, NULL);
   s_menu_open = false;
-  if (s_menu_choice == M_SWAP && cc_run_swap(&g_run, &g_items[s_slot], steps(), clock_now_local())) after_change(CC_RUN_NONE);
-  else if (s_menu_choice == M_LEAVE) window_stack_remove(s_step_win, true);  // the run stays parked
+  if (s_menu_choice == M_STEP) skip_step();
+  else if (s_menu_choice == M_SWAP && cc_run_swap(&g_run, &g_items[s_slot], steps(), clock_now_local())) after_change(CC_RUN_NONE);
   else if (s_menu_choice == M_FINISH) finish_run(true);
   else if (s_menu_choice == M_SKIP) finish_run(false);
 }
@@ -479,11 +496,11 @@ static void step_select_long(ClickRecognizerRef r, void *ctx) {
   if (s_menu_open) return;
   const CcStep *alt = other();
   ActionMenuLevel *level = action_menu_level_create(alt ? 4 : 3);
+  action_menu_level_add_action(level, "Skip this step", menu_perform, (void *)M_STEP);
   if (alt) {
     snprintf(s_swap_label, sizeof(s_swap_label), "Swap to %s", alt->name);
     action_menu_level_add_action(level, s_swap_label, menu_perform, (void *)M_SWAP);
   }
-  action_menu_level_add_action(level, "Leave, resume later", menu_perform, (void *)M_LEAVE);
   action_menu_level_add_action(level, "Finish routine now", menu_perform, (void *)M_FINISH);
   action_menu_level_add_action(level, "Skip routine today", menu_perform, (void *)M_SKIP);
   s_menu_open = true;
@@ -515,6 +532,7 @@ static void close_dead_runner(void *ctx) {
 
 static void step_appear(Window *w) {
   if (!g_run.active) { app_timer_register(0, close_dead_runner, NULL); return; }  // ended from Today or an alert
+  cc_run_back(&g_run, clock_now_local());
   // Catch up a clock that ran out while this window was hidden or the app was closed.
   const CcStep *was = cur();
   uint8_t index = cur_index();
@@ -525,14 +543,16 @@ static void step_appear(Window *w) {
     store_save_run();
     wake_rearm();
   }
-  if (ev == CC_RUN_FINISHED) { finish_run(true); return; }
+  if (ev == CC_RUN_FINISHED) { finish_run(g_run.done != 0); return; }
   enter_step();
 }
 
 static void step_disappear(Window *w) {
   if (s_step_timer) { app_timer_cancel(s_step_timer); s_step_timer = NULL; }
-  if (s_value_dirty && g_run.active) store_save_run();  // once, not on every press
-  s_value_dirty = false;
+  if (g_run.active) {  // parked (or a menu or alert on top): its time stops, and a changed count is kept
+    cc_run_away(&g_run, clock_now_local());
+    store_save_run();
+  }
 }
 
 static void step_unload(Window *w) {
@@ -583,7 +603,11 @@ static void num_win_draw(Layer *layer, GContext *ctx) {
   poster_draw_rail(ctx, b, bg, rail);
 }
 
-static void num_win_select(ClickRecognizerRef r, void *ctx) { num_save(&s_wnum); num_win_close(true); }
+static void num_win_select(ClickRecognizerRef r, void *ctx) {
+  num_save(&s_wnum);
+  if (s_wnum.item != CC_ITEM_NONE) sync_poke();
+  num_win_close(true);
+}
 static void num_win_back(ClickRecognizerRef r, void *ctx) { num_win_close(false); }
 static void num_win_up(ClickRecognizerRef r, void *ctx) { num_change(&s_wnum, +1, r); layer_mark_dirty(s_num_canvas); }
 static void num_win_down(ClickRecognizerRef r, void *ctx) { num_change(&s_wnum, -1, r); layer_mark_dirty(s_num_canvas); }

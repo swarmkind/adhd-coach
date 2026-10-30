@@ -12,6 +12,9 @@ typedef struct {
   uint8_t order[CC_MAX_STEPS];  // today's steps as indices among the item's steps; a swap holds the alternative's
   int32_t value;              // the current step's count as changed with Up and Down; CC_RUN_PLAN until then
   uint32_t swapped;           // bit i: order[i] is the alternative of today's main step i
+  cc_sec started;             // when the run began; 0 for a run saved by 1.5.0
+  uint32_t done;              // bit i: today's step i was done (a skip leaves it clear)
+  cc_sec away_at;             // when its screen closed (parked), 0 while it shows: parked time isn't run time
 } CcRun;
 
 typedef enum { CC_RUN_NONE, CC_RUN_TIME_UP, CC_RUN_FINISHED } CcRunEvent;
@@ -32,11 +35,16 @@ int32_t cc_run_qty(const CcRun *r, const CcStep *s);  // a Do it step's count: a
 bool cc_run_refit(CcRun *r, const CcItem *it, const CcStep steps[], const CcStep *was, cc_sec now);
 // Whether an active run carries on today: its routine is still there and cc_run_refit takes it.
 bool cc_run_alive(CcRun *r, const CcItem items[], int n, const CcStep pool[], cc_sec now);
-CcRunEvent cc_run_next(CcRun *r, const CcStep steps[], cc_sec now);   // Select on manual/number, Back = skip
-CcRunEvent cc_run_tick(CcRun *r, const CcStep steps[], cc_sec now);   // auto-advance at zero
-bool cc_run_undo(CcRun *r, const CcStep steps[], cc_sec now);         // <= 5 s after an auto-advance
+CcRunEvent cc_run_next(CcRun *r, const CcStep steps[], cc_sec now);   // the step is done: Select on manual/number
+CcRunEvent cc_run_skip(CcRun *r, const CcStep steps[], cc_sec now);   // on without doing it; Undo can take it back
+CcRunEvent cc_run_tick(CcRun *r, const CcStep steps[], cc_sec now);   // auto-advance at zero, done
+bool cc_run_undo(CcRun *r, const CcStep steps[], cc_sec now);         // <= 5 s after a skip or an auto-advance
 void cc_run_toggle_pause(CcRun *r, cc_sec now);                       // Start, stop, carry on
 bool cc_run_waiting(const CcRun *r);                                  // a timed step not started yet
 int32_t cc_run_remaining(const CcRun *r, cc_sec now);                 // seconds; 0 for untimed
 bool cc_run_counts_for_today(const CcRun *r, int32_t today);
 bool cc_run_resumes(const CcRun *r, uint16_t id, int32_t today);   // Start on `id` continues r, not a new run
+void cc_run_away(CcRun *r, cc_sec now);  // its screen closed: parked from now
+void cc_run_back(CcRun *r, cc_sec now);  // its screen is back: the parked time moves its start on
+// The run's end as a log value: steps << 25 | steps done << 20 | seconds on its screens (capped at 0xFFFFF; 0 if unknown).
+int32_t cc_run_log_value(const CcRun *r, cc_sec now);

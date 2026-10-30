@@ -225,22 +225,24 @@ int cc_unpack_logs(const uint8_t *buf, int len, CcLogEntry *out, int max) {
   return r.ok ? n : -1;
 }
 
-// V2 adds today's step order, the current step's changed count and which steps are swapped; a V1 run (1.4.1) ran every step in order.
+// V2 adds today's step order, the current step's changed count and which steps are swapped; V3 adds when the
+// run began, which steps were done and when it was parked. A V1 run (1.4.1) ran every step in order.
 int cc_pack_run(const CcRun *r, uint8_t *buf, int len) {
   W w = { buf, len, 0, true };
-  w8(&w, CC_CODEC_V2);
+  w8(&w, CC_CODEC_V3);
   w16(&w, r->item_id); w32(&w, (uint32_t)r->day);
   w8(&w, r->active); w8(&w, r->step); w8(&w, r->step_count); w8(&w, r->paused);
   w32(&w, (uint32_t)r->step_end); w32(&w, (uint32_t)r->advanced_at); w32(&w, (uint32_t)r->paused_left);
   for (int i = 0; i < r->step_count && i < CC_MAX_STEPS; i++) w8(&w, r->order[i]);
   w32(&w, (uint32_t)r->value); w32(&w, r->swapped);
+  w32(&w, (uint32_t)r->started); w32(&w, r->done); w32(&w, (uint32_t)r->away_at);
   return w.ok ? w.pos : -1;
 }
 
 bool cc_unpack_run(const uint8_t *buf, int len, CcRun *r) {
   R rd = { buf, len, 0, true };
   uint32_t ver = r8(&rd);
-  if (!rd.ok || (ver != CC_CODEC_V1 && ver != CC_CODEC_V2)) return false;
+  if (!rd.ok || ver < CC_CODEC_V1 || ver > CC_CODEC_V3) return false;
   memset(r, 0, sizeof(*r));
   r->item_id = (uint16_t)r16(&rd); r->day = (int32_t)r32(&rd);
   r->active = (uint8_t)r8(&rd); r->step = (uint8_t)r8(&rd);
@@ -248,11 +250,13 @@ bool cc_unpack_run(const uint8_t *buf, int len, CcRun *r) {
   r->step_end = (cc_sec)r32(&rd); r->advanced_at = (cc_sec)r32(&rd); r->paused_left = (int32_t)r32(&rd);
   if (!rd.ok || r->step_count > CC_MAX_STEPS) return false;
   for (int i = 0; i < r->step_count; i++) {
-    r->order[i] = ver == CC_CODEC_V2 ? (uint8_t)r8(&rd) : (uint8_t)i;
+    r->order[i] = ver >= CC_CODEC_V2 ? (uint8_t)r8(&rd) : (uint8_t)i;
     if (r->order[i] >= CC_ITEM_STEPS) return false;
   }
-  r->value = ver == CC_CODEC_V2 ? (int32_t)r32(&rd) : CC_RUN_PLAN;
-  if (ver == CC_CODEC_V2) r->swapped = r32(&rd);
+  r->value = ver >= CC_CODEC_V2 ? (int32_t)r32(&rd) : CC_RUN_PLAN;
+  if (ver >= CC_CODEC_V2) r->swapped = r32(&rd);
+  if (ver == CC_CODEC_V3) { r->started = (cc_sec)r32(&rd); r->done = r32(&rd); r->away_at = (cc_sec)r32(&rd); }
+  else if (r->step) r->done = (1u << r->step) - 1;  // before V3: the steps behind it count as done
   return rd.ok && (!r->active || r->step < r->step_count);
 }
 

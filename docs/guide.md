@@ -69,10 +69,12 @@ In the phone app, open ADHD Coach's **Settings**. That opens the planner, a page
 
 - **Schedule**: your routines, reminders, tasks and events. Tap one to change it, or a "New" link to add one.
 - **Notes**: your voice notes, to read, rename, delete or export.
-- **History**: numbers you logged (weight, pushups, curls with their weight) and how each day went, with export. A step's count and weight show together, such as 18 × 12.5 kg.
+- **History**: each routine run (such as "Gym · 5 of 7 · 34 min · skipped Curls, Plank"), numbers you logged (weight, pushups, curls with their weight) and how each day went, each with a CSV export. A step's count and weight show together, such as 18 × 12.5 kg.
 - **Settings**: Focus lengths and how long "Later" waits.
 
 Tap **Save** when you're done. The changes go to the watch straight away if it's connected, or the next time ADHD Coach opens near your phone.
+
+What you do on the watch reaches the planner by itself. A couple of seconds after you finish or leave a routine, log a number or save a note, the watch asks the phone to sync. If the phone is out of reach, it asks again when the phone reconnects, and every 15 minutes while ADHD Coach stays open. A Pebble app can't talk to the phone once it's closed, so anything still waiting goes the next time ADHD Coach opens near your phone. A note saved from Quick Launch waits up to 8 seconds for the phone before ADHD Coach closes.
 
 What you can schedule:
 
@@ -126,7 +128,7 @@ If you don't respond, it buzzes once more after about 30 seconds. A task or rout
 
 ## Routines
 
-<img src="screenshots/guide/step_do.png" width="160" alt="A do-it step"> <img src="screenshots/guide/step_timer_wait.png" width="160" alt="A timer step waiting for Select"> <img src="screenshots/guide/step_timer.png" width="160" alt="A timer step counting down"> <img src="screenshots/guide/step_number.png" width="160" alt="A number step"> <img src="screenshots/guide/routine_done.png" width="160" alt="The Done screen, with what is next">
+<img src="screenshots/guide/step_do.png" width="160" alt="A do-it step"> <img src="screenshots/guide/step_timer_wait.png" width="160" alt="A timer step waiting for Select"> <img src="screenshots/guide/step_timer.png" width="160" alt="A timer step counting down"> <img src="screenshots/guide/step_number.png" width="160" alt="A number step"> <img src="screenshots/guide/step_menu.png" width="160" alt="Hold Select on a step: Skip this step first"> <img src="screenshots/guide/routine_done.png" width="160" alt="The Done screen, with what is next">
 
 A routine shows one step at a time, with a bar along the top for how far through you are and the next step at the bottom.
 
@@ -135,10 +137,11 @@ A routine shows one step at a time, with a bar along the top for how far through
 - **Number** step: Up and Down change the value, Select saves. It starts at your last value. Holding a button starts slowly and speeds up after 2 seconds.
 - **Do it** step with a count: shows today's target, such as "× 21" or "8 × 10.0 kg". Up and Down change how many you did, and Select logs it with the weight. Your count stays if you open the Hold Select menu, or leave and come back.
 - A step with an alternative shows "or:" and its name at the bottom. **Swap to** it from the Hold Select menu.
-- **Back skips** the current step.
-- **Hold Select**: Swap to the alternative, if the step has one; Leave, resume later; Finish routine now; Skip routine today.
+- **Back** leaves the routine where it is. Home offers to resume it.
+- **Hold Select**: Skip this step; Swap to the alternative, if the step has one; Finish routine now; Skip routine today.
+- **Up within 5 seconds** of a skip brings the step back.
 
-Steps that come up every few days appear only on their days, and the bar counts only today's steps. A routine with no steps on a day doesn't come up that day. If you leave part way, home offers to resume it. A change you save in the planner meanwhile shows when you resume, at the same step. Timers keep running and buzzing even when you leave the app. At the end, a Done screen tells you what's next.
+Steps that come up every few days appear only on their days, and the bar counts only today's steps. A routine with no steps on a day doesn't come up that day. If you leave part way, home offers to resume it. A change you save in the planner meanwhile shows when you resume, at the same step. Timers keep running and buzzing even when you leave the app. At the end, a Done screen tells you what's next. If you skipped every step, the routine counts as skipped and there's no Done screen. A routine you leave and don't finish that day shows in History as "not finished". Its minutes count only the time its steps were on screen.
 
 ## Reminders and numbers
 

@@ -297,3 +297,58 @@ void test_run_alive(void) {
   items[1].id = 7; r.active = 0;
   T_TRUE(!cc_run_alive(&r, items, 2, st, now));
 }
+
+// A skip can be taken back for a few seconds, and it never counts as a done step.
+void test_run_skip(void) {
+  CcStep st[3] = { step(CC_STEP_MANUAL, "A", 0), step(CC_STEP_TIMED, "B", 30), step(CC_STEP_MANUAL, "C", 0) };
+  CcItem R; memset(&R, 0, sizeof(R));
+  R.id = 7; R.kind = CC_ROUTINE; R.days = 0x7F; R.step_count = 3;
+  cc_sec t = cc_at(D, 420);
+  CcRun r;
+  cc_run_start(&r, &R, st, t);
+  T_EQ(r.started, t); T_EQ(r.done, 0);
+  T_EQ(cc_run_next(&r, st, t + 10), CC_RUN_NONE);  // A done
+  T_EQ(r.done, 1); T_EQ(r.advanced_at, 0);
+  T_EQ(cc_run_skip(&r, st, t + 20), CC_RUN_NONE);  // B skipped
+  T_EQ(r.step, 2); T_EQ(r.done, 1); T_EQ(r.advanced_at, t + 20);
+  T_TRUE(cc_run_undo(&r, st, t + 24));             // back on B, waiting at its full length
+  T_EQ(r.step, 1); T_TRUE(cc_run_waiting(&r)); T_EQ(r.done, 1);
+  T_TRUE(!cc_run_undo(&r, st, t + 25));            // once
+  T_EQ(cc_run_skip(&r, st, t + 30), CC_RUN_NONE);
+  T_TRUE(!cc_run_undo(&r, st, t + 36));            // too late
+  T_EQ(cc_run_skip(&r, st, t + 40), CC_RUN_FINISHED);
+  T_EQ(r.done, 1); T_EQ(r.active, 0);
+
+  // A timer that runs out is done; undoing it takes that back.
+  cc_run_start(&r, &R, st, t);
+  cc_run_skip(&r, st, t);
+  cc_run_toggle_pause(&r, t + 1);
+  T_EQ(cc_run_tick(&r, st, t + 31), CC_RUN_TIME_UP);
+  T_EQ(r.done, 2);
+  T_TRUE(cc_run_undo(&r, st, t + 33));
+  T_EQ(r.done, 0); T_EQ(r.step, 1);
+}
+
+// The run's end in the log: steps << 25 | steps done << 20 | seconds on its screens, parked time left out.
+void test_run_log_value(void) {
+  CcStep st[3] = { step(CC_STEP_MANUAL, "A", 0), step(CC_STEP_MANUAL, "B", 0), step(CC_STEP_MANUAL, "C", 0) };
+  CcItem R; memset(&R, 0, sizeof(R));
+  R.id = 7; R.kind = CC_ROUTINE; R.days = 0x7F; R.step_count = 3;
+  cc_sec t = cc_at(D, 420);
+  CcRun r;
+  cc_run_start(&r, &R, st, t);
+  T_EQ(cc_run_log_value(&r, t + 34 * 60), 3 << 25 | 2040);
+  cc_run_next(&r, st, t);
+  cc_run_skip(&r, st, t);
+  T_EQ(cc_run_log_value(&r, t + 20 * 86400), 3 << 25 | 1 << 20 | 0xFFFFF);  // one done; capped
+  // Parked for an hour after a minute: the hour doesn't count, and a run that ends parked stops at the park.
+  cc_run_away(&r, t + 60);
+  T_EQ(cc_run_log_value(&r, t + 9999), 3 << 25 | 1 << 20 | 60);
+  cc_run_back(&r, t + 3660);
+  T_EQ(r.away_at, 0);
+  T_EQ(cc_run_log_value(&r, t + 3720), 3 << 25 | 1 << 20 | 120);
+  cc_run_back(&r, t + 5000);  // not away: nothing moves
+  T_EQ(cc_run_log_value(&r, t + 3720), 3 << 25 | 1 << 20 | 120);
+  r.started = 0;
+  T_EQ(cc_run_log_value(&r, t), 3 << 25 | 1 << 20);  // a run from 1.5.0 has no start: no length
+}

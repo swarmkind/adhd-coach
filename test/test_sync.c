@@ -109,3 +109,17 @@ void test_sync(void) {
   test_records();
   test_prune_and_stage();
 }
+
+// The watch asks the phone for a sync once a change settles, then again later while no sync comes.
+void test_ask_delay(void) {
+  T_EQ(cc_ask_delay_ms(0), 2000);
+  T_EQ(cc_ask_delay_ms(1), 60000);
+  T_EQ(cc_ask_delay_ms(2), 5 * 60000);
+  T_EQ(cc_ask_delay_ms(3), 15 * 60000);
+  T_EQ(cc_ask_delay_ms(200), 15 * 60000);
+  // A step's outcome and a run's end share the log's step byte with the steps themselves.
+  T_TRUE(CC_ITEM_STEPS <= (CC_LOG_RUN_LEFT & 0x3F));
+  T_EQ(CC_LOG_RUN_LEFT & CC_LOG_WEIGHT, 0);
+  T_EQ(CC_LOG_RUN_DONE & CC_LOG_WEIGHT, 0); T_EQ(CC_LOG_RUN_SKIP & CC_LOG_WEIGHT, 0);
+  T_TRUE(CC_LOG_RUN_DONE != 255);  // 255: a number logged on the item itself
+}

@@ -225,14 +225,17 @@ void store_log(uint16_t item, uint8_t step, int32_t value, bool remember) {
 }
 
 bool store_unlog(uint16_t item, uint8_t step) {
-  if (!s_logs.count) return false;
-  uint16_t slot = cc_ring_slot(&s_logs, LOG_SLOTS, s_logs.count - 1);
   CcLogEntry chunk[CC_LOG_PER_CHUNK];
-  int len = read_key(K_LOG + slot);
-  int n = len > 0 ? cc_unpack_logs(s_buf, len, chunk, CC_LOG_PER_CHUNK) : -1;
-  if (n <= 0 || chunk[n - 1].item != item || chunk[n - 1].step != step) return false;
-  write_key(K_LOG + slot, cc_pack_logs(chunk, n - 1, s_buf, PERSIST_DATA_MAX_LENGTH));  // an empty chunk reads as 0
-  return true;
+  for (int back = 1; back <= 2 && back <= s_logs.count; back++) {  // an Undo may have emptied the newest chunk
+    uint16_t slot = cc_ring_slot(&s_logs, LOG_SLOTS, s_logs.count - back);
+    int len = read_key(K_LOG + slot);
+    int n = len > 0 ? cc_unpack_logs(s_buf, len, chunk, CC_LOG_PER_CHUNK) : -1;
+    if (n == 0) continue;
+    if (n < 0 || chunk[n - 1].item != item || chunk[n - 1].step != step) return false;
+    write_key(K_LOG + slot, cc_pack_logs(chunk, n - 1, s_buf, PERSIST_DATA_MAX_LENGTH));  // an empty chunk reads as 0
+    return true;
+  }
+  return false;
 }
 
 bool store_last_number(uint16_t item, uint8_t step, int32_t *value, int32_t *utc) {

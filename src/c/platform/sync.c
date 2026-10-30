@@ -12,7 +12,7 @@
 #include "../ui/home_win.h"
 #include "../ui/today_win.h"
 
-enum { C_HELLO = 1, C_UP, C_UP_END, C_ACK, C_SCHED, C_SCHED_END, C_OPS, C_DONE };
+enum { C_HELLO = 1, C_UP, C_UP_END, C_ACK, C_SCHED, C_SCHED_END, C_OPS, C_DONE, C_ASK };
 #define DATA_MAX 900
 #define QUIET_MS 12000
 #define RETRY_MS 500
@@ -56,6 +56,10 @@ static bool s_sending;
 static int32_t s_inflight;           // CMD of the message in the outbox
 static int s_fails;
 static int32_t s_reply = INT32_MIN;  // a DONE waiting to be delivered
+static AppTimer *s_ask, *s_then;
+static AppTimerCallback s_then_fn;
+static uint8_t s_ask_tries;
+static uint16_t s_poked, s_hello_at, s_acked;  // pokes so far; at the last HELLO; at the last acknowledged upload
 
 static void stop(const char *why);
 
@@ -248,6 +252,7 @@ static void sent(DictionaryIterator *it, void *ctx) {
 static void failed(DictionaryIterator *it, AppMessageResult reason, void *ctx) {
   s_sending = false;
   APP_LOG(APP_LOG_LEVEL_WARNING, "sync: send %d failed %d", (int)s_inflight, (int)reason);
+  if (s_inflight == C_ASK) { send_reply(); send_up(); return; }  // the ask timer tries again; a HELLO may be waiting
   if (++s_fails > 1) {
     s_fails = 0;
     s_reply = INT32_MIN;
@@ -292,6 +297,7 @@ static void on_hello(const Tuple *data) {
   if (!u) { APP_LOG(APP_LOG_LEVEL_ERROR, "sync: no memory"); return; }
   s_up = u;
   s_hello_phone = phone;
+  s_hello_at = s_poked;
   u->full_sched = rev == 0;
   u->phase = u->full_sched ? P_SCHED : P_SETTINGS;
   u->step = -1;
@@ -314,6 +320,8 @@ static void on_ack(const Tuple *data, const Tuple *rev, const Tuple *arg) {
   s_sync.phone_id = s_hello_phone;
   s_sync.last_sync_utc = (uint32_t)time(NULL);
   store_save_sync(&s_sync);
+  s_acked = s_hello_at;
+  if (s_then && s_acked == s_poked) app_timer_reschedule(s_then, 600);
   APP_LOG(APP_LOG_LEVEL_INFO, "sync: ack %d notes, rev %u", n, (unsigned)s_sync.rev);
 }
 
@@ -382,10 +390,8 @@ static void commit(Stage *st, uint32_t rev) {
   cc_sec now = clock_now_local();
   int slot = g_run.active ? coach_slot(g_run.item_id) : -1;
   if (g_run.active) {  // the edits win: the run takes its routine's new steps, or ends if they changed shape
-    if (slot < 0 || !cc_run_refit(&g_run, &g_items[slot], coach_steps(slot), old >= 0 ? &was : NULL, now)) {
-      g_run.active = 0;
-      g_run.step_end = CC_NEVER;
-    }
+    if (slot < 0 || !cc_run_refit(&g_run, &g_items[slot], coach_steps(slot), old >= 0 ? &was : NULL, now))
+      coach_run_ended(CC_LOG_RUN_LEFT);
     store_save_run();
   }
   if (g_focus.label_id && !coach_item(g_focus.label_id)) {
@@ -466,8 +472,52 @@ static void dropped(AppMessageResult reason, void *ctx) {
   if (s_stage) s_stage->bad = true;  // a lost SCHED message: refuse the rest
 }
 
+// ---- Asking the phone for a sync ----
+
+static void ask_fired(void *data);
+
+static void ask_arm(void) {
+  uint32_t ms = cc_ask_delay_ms(s_ask_tries);
+  if (s_ask) app_timer_reschedule(s_ask, ms);
+  else s_ask = app_timer_register(ms, ask_fired, NULL);
+}
+
+// The phone answers with a HELLO; until an upload after the poke is acknowledged, ask again later.
+static void ask_fired(void *data) {
+  s_ask = NULL;
+  if (s_acked == s_poked) return;
+  if (!s_up && !s_stage && !s_sending && s_reply == INT32_MIN && connection_service_peek_pebble_app_connection() &&
+      send_message(C_ASK, NULL, 0, false, 0, 0))
+    APP_LOG(APP_LOG_LEVEL_INFO, "sync: asked the phone");
+  if (s_ask_tries < 3) s_ask_tries++;
+  ask_arm();
+}
+
+void sync_poke(void) {
+  s_poked++;
+  s_ask_tries = 0;
+  ask_arm();
+}
+
+static void then_fired(void *data) { s_then = NULL; s_then_fn(data); }
+
+void sync_then(AppTimerCallback fn, uint32_t cap_ms) {
+  s_then_fn = fn;
+  bool wait = s_acked != s_poked && connection_service_peek_pebble_app_connection();
+  s_then = app_timer_register(wait ? cap_ms : 600, then_fired, NULL);
+  if (!wait) return;
+  if (s_ask) { app_timer_cancel(s_ask); s_ask = NULL; }
+  s_ask_tries = 0;
+  ask_fired(NULL);  // now, not after the usual pause
+}
+
+static void phone_connection(bool connected) {  // back in range: ask soon rather than at the next retry
+  if (connected && s_acked != s_poked) { s_ask_tries = 0; ask_arm(); }
+}
+
 void sync_init(void) {
   store_load_sync(&s_sync);
+  connection_service_subscribe((ConnectionHandlers){ .pebble_app_connection_handler = phone_connection });
   app_message_register_inbox_received(received);
   app_message_register_inbox_dropped(dropped);
   app_message_register_outbox_sent(sent);

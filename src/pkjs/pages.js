@@ -6,7 +6,7 @@ var codec = require('./codec.js');
 var PREFIX = 'data:text/html;charset=utf-8,';
 var URL_MAX = 400000;
 var MIN_BUDGET = 16 * 1024;
-var TITLES = { notes: 'Voice notes', numbers: 'Numbers (CSV)', days: 'Days (CSV)' };
+var TITLES = { notes: 'Voice notes', numbers: 'Numbers (CSV)', runs: 'Routines (CSV)', days: 'Days (CSV)' };
 
 function dataScript(data) {
   return 'window.COACH=' + JSON.stringify(data).replace(/</g, '\\u003c') + ';';
@@ -40,6 +40,9 @@ function exportParts(M, store, kind, maxBytes) {
   if (kind === 'notes') {
     joiner = '\n\n';
     recs = store.notes.map(function (n) { return M.textNotes([n]); });
+  } else if (kind === 'runs') {  // rows come from grouping the whole log, not one entry each
+    recs = M.csvRuns(store.logs).split('\n');
+    header = recs.shift();
   } else {
     var csv = kind === 'numbers' ? M.csvNumbers : M.csvOutcomes, list = kind === 'numbers' ? store.logs : store.hist;
     header = csv([]);

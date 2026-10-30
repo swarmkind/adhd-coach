@@ -6,7 +6,7 @@
   var TODAY = M.local(Math.floor(Date.now() / 1000)).day;
   // What stayed on the phone because the page travels as one URL; an export of it opens as its own page.
   var MORE = D.more || { notes: 0, logs: 0, days: 0 };
-  var MORE_OF = { notes: 'notes', numbers: 'logs', days: 'days' };
+  var MORE_OF = { notes: 'notes', numbers: 'logs', runs: 'logs', days: 'days' };
   var KIND_NAME = ['Routine', 'Reminder', 'Task', 'Event'];
   var KIND_PLURAL = ['Routines', 'Reminders', 'Tasks', 'Events'];
   var SETTINGS = [
@@ -187,14 +187,32 @@
   }
 
   function historyView() {
-    var logs = D.logs || [], hist = D.hist || [];
+    var logs = D.logs || [], hist = D.hist || [], runs = M.runs(logs), series = M.series(logs);
     if (!logs.length && !hist.length) return '<p class="empty">Nothing logged yet. Numbers from routines and reminders, and each day\u2019s results, show up here after the watch syncs.</p>';
     var out = '<div class="export">' +
-      (logs.length ? '<button data-act="export" data-v="numbers">Export numbers (CSV) ' + glyph('next', 20) + '</button>' : '') +
+      (runs.length ? '<button data-act="export" data-v="runs">Export routines (CSV) ' + glyph('next', 20) + '</button>' : '') +
+      (series.length ? '<button data-act="export" data-v="numbers">Export numbers (CSV) ' + glyph('next', 20) + '</button>' : '') +
       (hist.length ? '<button data-act="export" data-v="days">Export days (CSV) ' + glyph('next', 20) + '</button>' : '') + '</div>' +
       (MORE.logs || MORE.days ? '<p class="hint">Recent numbers and the last ' + hist.length + ' days. The exports hold everything the phone has kept.</p>' : '');
-    if (logs.length) {
-      out += '<h2>Numbers</h2>' + M.series(logs).map(function (one) {
+    if (runs.length) {
+      var byItem = {}, order = [];
+      runs.forEach(function (r) {
+        if (!byItem[r.item]) { byItem[r.item] = []; order.push(r.item); }
+        byItem[r.item].push(r);
+      });
+      out += '<h2>Routines</h2>' + order.map(function (id) {
+        var list = byItem[id];
+        return '<div class="series"><div class="top"><span class="label">' + esc(list[0].name) + '</span></div><ol>' +
+          list.slice(0, 8).map(function (r) {
+            var at = M.local(r.t);
+            return '<li><span>' + at.wday + ' ' + at.date + ' ' + at.month + ' ' + M.minToHHMM(at.min) + '</span><b>' +
+              esc(M.runText(r)) + '</b></li>' +
+              (r.skipped.length ? '<li class="skips">skipped ' + esc(r.skipped.join(', ')) + '</li>' : '');
+          }).join('') + '</ol></div>';
+      }).join('');
+    }
+    if (series.length) {
+      out += '<h2>Numbers</h2>' + series.map(function (one) {
         var g = M.pairWeights(one), last = g[0], w = last.weight;
         var unit = (last.unit ? last.unit + ' ' : '') + (w ? '\u00d7 ' + M.fromScaled(w.v, w.dec) + (w.unit ? ' ' + w.unit : '') : '');
         return '<div class="series"><div class="top"><span class="label">' + esc(last.label) + '</span>' +
@@ -716,6 +734,7 @@
       return { kind: 'export', title: 'Voice notes', text: M.textNotes(notes) };
     }
     if (what === 'numbers') return { kind: 'export', title: 'Numbers (CSV)', text: M.csvNumbers(D.logs || []) };
+    if (what === 'runs') return { kind: 'export', title: 'Routines (CSV)', text: M.csvRuns(D.logs || []) };
     return { kind: 'export', title: 'Days (CSV)', text: M.csvOutcomes(D.hist || []) };
   }
 

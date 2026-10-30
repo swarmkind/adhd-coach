@@ -3,6 +3,7 @@
 #include "notes.h"
 #include "buzz.h"
 #include "store.h"
+#include "sync.h"
 #include "../coach.h"
 #include "../config.h"
 #include "../core/cc_note.h"
@@ -74,6 +75,7 @@ static void finish(DictationSessionStatus st, const char *text) {
           n.len_s, n.link, n.text_len);
   if (n.status == CC_NOTE_OK) buzz_tick();
   else buzz_missed();
+  if (saved) sync_poke();
   if (s_done) s_done(saved);
 }
 

@@ -13,6 +13,8 @@ void coach_apply(uint16_t id, CcAction a, cc_sec occurrence);
 
 // Start: a routine with steps opens the runner; anything else is marked started.
 void coach_start(uint16_t id);
+// Ends the active run from outside its screen, logging its end (CC_LOG_RUN_*) so History doesn't fold it into the next.
+void coach_run_ended(uint8_t how);
 
 // For actions not raised by an alert: the reminder slot "now" belongs to (the next due, mapped
 // back from a Later), or `now` when nothing is left today.

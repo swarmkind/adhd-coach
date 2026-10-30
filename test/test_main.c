@@ -14,6 +14,8 @@ int main(void) {
   RUN(test_run_value);
   RUN(test_run_refit);
   RUN(test_run_refit_swaps);
+  RUN(test_run_skip);
+  RUN(test_run_log_value);
   RUN(test_run_alive);
   RUN(test_num);
   RUN(test_ring);
@@ -25,6 +27,7 @@ int main(void) {
   RUN(test_alarm);
   RUN(test_note);
   RUN(test_sync);
+  RUN(test_ask_delay);
   RUN(test_battery);
   RUN(test_todo);
   RUN(test_steps);

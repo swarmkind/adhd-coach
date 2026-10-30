@@ -30,7 +30,7 @@ static void prv_wakeup(WakeupId id, int32_t cookie) {
 }
 
 static void exit_app(void *data) { window_stack_pop_all(false); }
-static void quick_note_done(bool saved) { app_timer_register(600, exit_app, NULL); }  // after the buzz
+static void quick_note_done(bool saved) { sync_then(exit_app, 8000); }  // after the buzz, with the note on the phone
 static void quick_note(void *data) { voice_note_start(quick_note_done); }
 
 // Quick Launch, holding Down on the watch face: straight into a voice note.

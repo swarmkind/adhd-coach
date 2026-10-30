@@ -25,5 +25,8 @@ typedef struct { uint32_t rev, phone_id, settings_utc, last_sync_utc; } CcSync;
 int cc_pack_sync(const CcSync *s, uint8_t *buf, int len);
 bool cc_unpack_sync(const uint8_t *buf, int len, CcSync *s);
 
+// The watch asks the phone for a sync after a change: soon (tries 0), then later while none comes.
+uint32_t cc_ask_delay_ms(int tries);
+
 int cc_day_prune(CcDay *d, const CcItem items[], int n);  // drops states whose item is gone; returns how many
 bool cc_stage_complete(const CcItem *items, int n, const uint64_t *step_mask);  // every item has all its steps and alternatives

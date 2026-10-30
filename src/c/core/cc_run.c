@@ -30,18 +30,28 @@ void cc_run_start(CcRun *r, const CcItem *it, const CcStep steps[], cc_sec now) 
   r->day = cc_day_of(now);
   r->step_count = (uint8_t)cc_steps_today(it, steps, r->day, r->order);
   r->step_end = CC_NEVER;
+  r->started = now;
   r->active = r->step_count > 0;
   if (r->active) enter(r, steps, 0, now);
 }
 
 CcRunEvent cc_run_next(CcRun *r, const CcStep steps[], cc_sec now) {
   if (!r->active) return CC_RUN_NONE;
+  r->done |= 1u << r->step;
   r->advanced_at = 0;
   return advance(r, steps, now);
 }
 
+CcRunEvent cc_run_skip(CcRun *r, const CcStep steps[], cc_sec now) {
+  if (!r->active) return CC_RUN_NONE;
+  if (advance(r, steps, now) == CC_RUN_FINISHED) return CC_RUN_FINISHED;
+  r->advanced_at = now;
+  return CC_RUN_NONE;
+}
+
 CcRunEvent cc_run_tick(CcRun *r, const CcStep steps[], cc_sec now) {
   if (!r->active || r->paused || r->step_end == CC_NEVER || now < r->step_end) return CC_RUN_NONE;
+  r->done |= 1u << r->step;
   if (advance(r, steps, now) == CC_RUN_FINISHED) return CC_RUN_FINISHED;
   r->advanced_at = now;
   return CC_RUN_TIME_UP;
@@ -49,7 +59,8 @@ CcRunEvent cc_run_tick(CcRun *r, const CcStep steps[], cc_sec now) {
 
 bool cc_run_undo(CcRun *r, const CcStep steps[], cc_sec now) {
   if (!r->active || !r->advanced_at || now - r->advanced_at > CC_UNDO_S || r->step == 0) return false;
-  enter(r, steps, r->step - 1, now);  // back to the timed step, at full length
+  enter(r, steps, r->step - 1, now);  // back to the step, a timer at full length
+  r->done &= ~(1u << r->step);
   r->advanced_at = 0;
   return true;
 }
@@ -158,4 +169,18 @@ bool cc_run_counts_for_today(const CcRun *r, int32_t today) { return r->day == t
 
 bool cc_run_resumes(const CcRun *r, uint16_t id, int32_t today) {
   return r->active && r->item_id == id && r->day == today;
+}
+
+void cc_run_away(CcRun *r, cc_sec now) { if (!r->away_at) r->away_at = now; }
+
+void cc_run_back(CcRun *r, cc_sec now) {
+  if (r->away_at && r->started && now > r->away_at) r->started += now - r->away_at;
+  r->away_at = 0;
+}
+
+int32_t cc_run_log_value(const CcRun *r, cc_sec now) {
+  cc_sec end = r->away_at ? r->away_at : now;
+  int32_t secs = r->started && end > r->started ? end - r->started : 0;
+  if (secs > 0xFFFFF) secs = 0xFFFFF;
+  return (int32_t)r->step_count << 25 | __builtin_popcount(r->done) << 20 | secs;
 }

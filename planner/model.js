@@ -217,11 +217,19 @@
     return out;
   }
 
+  // What a routine run logs besides its numbers: each step's outcome (STEP | the step's index, value 1 done
+  // or 0 skipped) and its end (RUN_DONE, RUN_SKIP or RUN_LEFT unfinished; value: steps << 25 | steps done << 20 |
+  // seconds on its screens).
+  var LOG = { STEP: 0x80, RUN_DONE: 0xBF, RUN_SKIP: 0xBE, RUN_LEFT: 0xBD };
+  function isOutcome(e) { return e.step !== 255 && (e.step & LOG.STEP) !== 0; }
+  function isRunEnd(e) { return e.step === LOG.RUN_DONE || e.step === LOG.RUN_SKIP || e.step === LOG.RUN_LEFT; }
+
   // History's series, newest first: one per item and label, so a step keeps its own even when the
   // indices move. A weight carries its step's label, so it joins the count it was logged with.
   function series(logs) {
     var groups = {}, order = [];
     for (var i = logs.length - 1; i >= 0; i--) {
+      if (isOutcome(logs[i])) continue;
       var key = logs[i].item + '/' + logs[i].label;
       if (!groups[key]) { groups[key] = []; order.push(key); }
       groups[key].push(logs[i]);
@@ -254,6 +262,44 @@
       out.push(o);
     });
     return out;
+  }
+
+  // Routine runs from their outcomes, newest first. A run with no end yet is 'open'; one whose outcomes stop
+  // before another day began never ended (a watch from before ends were logged) and stands on its own.
+  function runs(logs, tzMin) {
+    var open = {}, out = [];
+    for (var i = 0; i < logs.length; i++) {
+      var e = logs[i];
+      if (!isOutcome(e)) continue;
+      var day = local(e.t, tzMin).day, r = open[e.item];
+      if (r && r.day !== day && !isRunEnd(e)) { out.push(r); r = null; }
+      if (!r) r = open[e.item] = { item: e.item, name: e.label, day: day, t: e.t, done: 0, of: 0, secs: 0, skipped: [], result: 'open' };
+      r.t = e.t;
+      if (isRunEnd(e)) {
+        r.result = e.step === LOG.RUN_DONE ? 'done' : e.step === LOG.RUN_SKIP ? 'skipped' : 'left';
+        r.of = e.v >>> 25 & 31;
+        r.done = e.v >>> 20 & 31;  // the watch's count stands, whichever outcomes reached this page
+        r.secs = e.v & 0xFFFFF;
+        out.push(r);
+        delete open[e.item];
+      } else if (e.v) {
+        r.done++;
+      } else {
+        r.skipped.push(e.stepName || 'a step');
+      }
+    }
+    for (var k in open) out.push(open[k]);
+    return out.sort(function (a, b) { return b.t - a.t; });
+  }
+
+  function runMinutes(r) { return r.secs ? Math.max(1, Math.round(r.secs / 60)) : 0; }
+
+  function runText(r) {
+    if (r.result === 'open') return r.done + ' done \u00b7 not finished';
+    var text = r.done + ' of ' + r.of;
+    if (r.result === 'skipped') return 'skipped \u00b7 ' + text;
+    if (r.result === 'left') return text + ' \u00b7 not finished';
+    return r.secs ? text + ' \u00b7 ' + runMinutes(r) + ' min' : text;
   }
 
   function ladderName(l) {
@@ -368,9 +414,20 @@
   function csvNumbers(logs, tzMin) {
     var rows = ['date,time,item,value,unit'];
     for (var i = 0; i < logs.length; i++) {
+      if (isOutcome(logs[i])) continue;
       var l = logs[i], at = local(l.t, tzMin);
       rows.push([dayToISO(at.day), minToHHMM(at.min), l.label, fromScaled(l.v, l.dec), l.unit].map(csvField).join(','));
     }
+    return rows.join('\n');
+  }
+
+  function csvRuns(logs, tzMin) {
+    var rows = ['date,time,routine,result,done,steps,minutes,skipped'];
+    runs(logs, tzMin).reverse().forEach(function (r) {
+      var at = local(r.t, tzMin), open = r.result === 'open';
+      rows.push([dayToISO(at.day), minToHHMM(at.min), r.name, open || r.result === 'left' ? 'not finished' : r.result, r.done, open ? '' : r.of,
+        runMinutes(r) || '', r.skipped.join('; ')].map(csvField).join(','));
+    });
     return rows.join('\n');
   }
 
@@ -408,11 +465,11 @@
     MAX_RUNGS: MAX_RUNGS, NAME_BYTES: NAME_BYTES, UNIT_BYTES: UNIT_BYTES, POOL_MAX: POOL_MAX, EVERY_MAX: EVERY_MAX,
     STATUS: STATUS, utf8Bytes: utf8Bytes, utf8Cut: utf8Cut, newItem: newItem, newStep: newStep, validate: validate,
     clean: clean, valueAt: valueAt, setToday: setToday, rebase: rebase, setCap: setCap, upgrade: upgrade, scheduleErrors: scheduleErrors,
-    warnings: warnings, pairWeights: pairWeights, series: series,
+    warnings: warnings, pairWeights: pairWeights, series: series, LOG: LOG, runs: runs, runText: runText,
     ladderName: ladderName, rungText: rungText, minToHHMM: minToHHMM, hhmmToMin: hhmmToMin, isoToDay: isoToDay,
     dayToISO: dayToISO, dayText: dayText, local: local, fromScaled: fromScaled, toScaled: toScaled, decimalsFor: decimalsFor, setDecimals: setDecimals,
     durText: durText,
-    daysText: daysText, whenText: whenText, summary: summary, csvNumbers: csvNumbers, csvOutcomes: csvOutcomes, reasonText: reasonText,
+    daysText: daysText, whenText: whenText, summary: summary, csvNumbers: csvNumbers, csvRuns: csvRuns, csvOutcomes: csvOutcomes, reasonText: reasonText,
     noteHeading: noteHeading, textNotes: textNotes };
   if (typeof module !== 'undefined' && module.exports) module.exports = M;
   else root.CoachModel = M;

@@ -20,7 +20,7 @@ It is a personal organiser, not a medical device or a treatment.
 
 ## What it does
 
-- **Routines**: a list of steps run one screen at a time. Steps can be a simple "done", a countdown timer, or a number to log (weight, reps, mood). Reps, weights and timer lengths can step up over time ("Pushups 20, plus 1 a week"), a step can have an alternative to swap to, and a step can come up only every few days.
+- **Routines**: a list of steps run one screen at a time. Steps can be a simple "done", a countdown timer, or a number to log (weight, reps, mood). Reps, weights and timer lengths can step up over time ("Pushups 20, plus 1 a week"), a step can have an alternative to swap to, and a step can come up only every few days. History on your phone shows each run: what you did, what you skipped and how long it took.
 - **Reminders**: repeat every so many minutes inside a daily window, with an optional daily goal ("Drink water, every hour, 9 to 9, goal 8").
 - **Tasks**: at a set time on chosen days or every few days, or "anytime" in a do-next list.
 - **Events**: one-off appointments with a ladder of early warnings (a week before, the day before, the morning of, an hour before).
@@ -42,7 +42,7 @@ A typical day:
 
 1. **Leave home on screen.** It's your clock: the time, what's next and how soon, today's water count, and your next alarm.
 2. **When it buzzes, answer it.** Select starts it or ticks it off, Up is Later, Down skips. Ignore it and it nudges you again, but it never nags forever.
-3. **Run a routine one step at a time.** Do the step and press Select. A timer step waits for you, then beeps when the time is up.
+3. **Run a routine one step at a time.** Do the step and press Select. A timer step waits for you, then beeps when the time is up. Back leaves the routine for later; hold Select to skip a step.
 4. **Catch a thought.** Press Down on home and speak. To make it a to-do, open Today > Voice notes, hold Select on the note and pick a time.
 5. **Focus on one thing.** Up on home opens Focus, and Select starts 25 minutes.
 6. **Check Today.** Select on home lists everything due today, your anytime tasks and your to-dos.
@@ -84,7 +84,7 @@ Developer notes are in [docs/dev.md](docs/dev.md) and test notes in [docs/testin
 
 ## Set up your schedule
 
-The watch comes with a sample schedule so you can try it straight away. To make your own, open ADHD Coach's **Settings** in the phone app. That opens the planner, a page built into the app: add routines, reminders, tasks and events, then tap **Save** and they go to the watch.
+The watch comes with a sample schedule so you can try it straight away. To make your own, open ADHD Coach's **Settings** in the phone app. That opens the planner, a page built into the app: add routines, reminders, tasks and events, then tap **Save** and they go to the watch. What you do on the watch comes back to the planner by itself while ADHD Coach is open.
 
 The planner was tested with Gravel. It should work the same way in Core's Pebble app; please open an issue if it doesn't.
 
@@ -93,11 +93,11 @@ The planner was tested with Gravel. It should work the same way in Core's Pebble
 - No account, no server, no tracking. ADHD Coach never uses the internet.
 - Your schedule, logs and notes live on the watch and in the phone app's storage for ADHD Coach, nowhere else.
 - Voice notes are transcribed by your phone app. Gravel does this on the phone itself. If you use Core's Pebble app, check its dictation settings.
-- Export from the planner copies your notes or numbers as text, so you can keep them elsewhere. Uninstalling the phone app deletes what you haven't exported.
+- Export from the planner copies your notes, numbers or routine history as text, so you can keep them elsewhere. Uninstalling the phone app deletes what you haven't exported.
 
 ## Status
 
-Version 1.5.0. Every screen has been walked through in the Pebble emulator, and the phone pieces it relies on (sideloading, dictation, the built-in planner page) were proven on a real Pebble Time 2 with Gravel. Real-world use is just starting, so if something feels off, please [open an issue](https://github.com/swarmkind/adhd-coach/issues).
+Version 1.5.1. Every screen has been walked through in the Pebble emulator, and the phone pieces it relies on (sideloading, dictation, the built-in planner page) were proven on a real Pebble Time 2 with Gravel. Real-world use is just starting, so if something feels off, please [open an issue](https://github.com/swarmkind/adhd-coach/issues).
 
 ## Licence
 

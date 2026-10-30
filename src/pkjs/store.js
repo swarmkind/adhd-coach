@@ -86,6 +86,11 @@ function stepAt(steps, i) {
 Store.prototype.labelFor = function (itemId, step) {
   var it = this.item(itemId);
   if (!it) return { label: 'Item ' + itemId, unit: '', dec: 0 };
+  if (step !== STEP_NONE && (step & model.LOG.STEP)) {  // a routine step's outcome, or the run's end
+    var o = { label: it.name, unit: '', dec: 0 }, done = stepAt(it.steps || [], step & 0x3F);
+    if ((step & 0x3F) < 0x3D && done) o.stepName = done.name;  // 0x3D and up: a run's end
+    return o;
+  }
   var s = step !== STEP_NONE ? stepAt(it.steps || [], step & 0x3F) : null;
   if (!s) return { label: it.name, unit: it.num ? it.num.unit : '', dec: it.num ? it.num.decimals : 0 };
   var label = it.name + ' · ' + s.name;
@@ -108,7 +113,9 @@ Store.prototype.addLogs = function (entries) {
     if (seen[k]) continue;
     seen[k] = true;
     var l = this.labelFor(e.item, e.step);
-    this.logs.push({ t: e.t, item: e.item, step: e.step, v: e.v, label: l.label, unit: l.unit, dec: l.dec });
+    var o = { t: e.t, item: e.item, step: e.step, v: e.v, label: l.label, unit: l.unit, dec: l.dec };
+    if (l.stepName) o.stepName = l.stepName;
+    this.logs.push(o);
     added++;
   }
   if (added) {

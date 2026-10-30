@@ -19,6 +19,10 @@ typedef int32_t cc_sec;
 #define CC_NO_ALT 255
 #define CC_EVERY_MAX 30
 #define CC_LOG_WEIGHT 0x40  // log step byte: the weight of step (byte & 0x3F)
+#define CC_LOG_STEP 0x80    // log step byte: step (byte & 0x3F) of a routine run was done (value 1) or skipped (0)
+#define CC_LOG_RUN_DONE 0xBF  // log step byte: a routine run ended done; value cc_run_log_value
+#define CC_LOG_RUN_SKIP 0xBE  // ... ended skipped: every step skipped, or Skip routine today
+#define CC_LOG_RUN_LEFT 0xBD  // ... ended unfinished: parked past midnight, replaced, or ended from elsewhere
 #define CC_LADDER_MAX 6    // used from Plan 2
 
 typedef enum { CC_ROUTINE, CC_REMINDER, CC_TASK, CC_EVENT } CcKind;

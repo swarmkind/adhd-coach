@@ -162,13 +162,18 @@ void test_codec(void) {
   T_EQ(cc_pack_item(&a, buf, 20), -1);               // buffer too small to pack
 
   // run and history records
-  CcRun run = { 7, 20749, 1, 2, 4, 1, 1792738860, 1792738800, 40, { 0, 1, 2, 3 }, 12, 2 }, run2;
+  CcRun run = { 7, 20749, 1, 2, 4, 1, 1792738860, 1792738800, 40, { 0, 1, 2, 3 }, 12, 2, 1792738000, 1, 1792738500 }, run2;
   n = cc_pack_run(&run, buf, sizeof(buf));
   T_TRUE(n > 0 && n <= 256);
   T_TRUE(cc_unpack_run(buf, n, &run2));
   T_EQ(run2.item_id, 7); T_EQ(run2.day, 20749); T_EQ(run2.active, 1); T_EQ(run2.step, 2);
   T_EQ(run2.step_count, 4); T_EQ(run2.paused, 1); T_EQ(run2.step_end, 1792738860);
   T_EQ(run2.advanced_at, 1792738800); T_EQ(run2.paused_left, 40); T_EQ(run2.value, 12); T_EQ(run2.swapped, 2);
+  T_EQ(run2.started, 1792738000); T_EQ(run2.done, 1); T_EQ(run2.away_at, 1792738500);
+  // A V2 run (1.5.0) is V3 without its start, done steps and park: the steps before it count as done.
+  buf[0] = CC_CODEC_V2;
+  T_TRUE(cc_unpack_run(buf, n - 12, &run2));
+  T_EQ(run2.step, 2); T_EQ(run2.swapped, 2); T_EQ(run2.started, 0); T_EQ(run2.done, 3); T_EQ(run2.away_at, 0);
   buf[0] = 9;
   T_TRUE(!cc_unpack_run(buf, n, &run2));
 

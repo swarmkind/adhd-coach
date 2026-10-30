@@ -207,4 +207,9 @@ test('labels find alternatives and weights', function () {
   assert.deepEqual(st.labelFor(9, 1), { label: 'Workout · Plank', unit: 's', dec: 0 });
   assert.deepEqual(st.labelFor(2, 255), { label: 'Drink water', unit: 'reps', dec: 0 });
   assert.deepEqual(st.labelFor(1, 2), { label: 'Morning routine · Weight', unit: 'kg', dec: 1 });
+  // A step's outcome and a run's end carry the routine's name; an outcome also its step's.
+  assert.deepEqual(st.labelFor(9, 0x82), { label: 'Workout', unit: '', dec: 0, stepName: 'Shoulder press' });
+  assert.deepEqual(st.labelFor(9, 0xBF), { label: 'Workout', unit: '', dec: 0 });
+  st.addLogs([{ t: 50, item: 9, step: 0x81, v: 0 }]);
+  assert.equal(st.logs[st.logs.length - 1].stepName, 'Plank');
 });

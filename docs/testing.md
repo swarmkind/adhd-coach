@@ -357,3 +357,22 @@ After the final review's fixes, on a fresh emulator from Fri 30 Oct 07:59:
 | Alternative deleted | Leave; delete Curls' alternative; resume | "Curls 9 × 12.5 kg", no "or:", 2 of 7 | Pass |
 | First sync after the update | As above, with the new sync code | Two nacks during the 3 s migration, then hello, up and ack | Pass |
 | Host tests | `make -C test`, `make -C test js` | All pass | C 1,162 of 1,162, JS 75 of 75 |
+
+## Leave, skip, undo, routine history, watch asks to sync (1.5.1, 2026-10-30)
+
+On the emery emulator with the walk's schedule, Fri 30 Oct and Sat 31 Oct on the fake clock.
+
+| Check | Steps | Expected | Result |
+|---|---|---|---|
+| Back leaves | Gym, Pushups done, Back | "leave" on the bar; home "paused · 2 of 7" | Pass |
+| Menu | Hold Select on a step | "Skip this step" first; no Leave entry | Pass |
+| Undo a skip | Skip Curls, Up within 5 s | Back on Curls, nothing logged for it | Pass |
+| A mixed run | Pushups done, Curls skipped, Farmer carry done, Plank skipped, the rest done | Done screen; History "Gym · Fri 30 Oct 08:01 · 5 of 7 · 1 min · skipped Curls, Plank"; CSV `2026-10-30,08:01,Gym,done,5,7,1,Curls; Plank`; Numbers without outcomes | Pass |
+| Every step skipped | Sat: Cold shower (1 step), Skip this step | No Done screen; Today "08:30 · skipped"; History "skipped · 0 of 1" | Pass |
+| The watch asks | Finish a run; leave a run | "sync: asked the phone", then hello, up and ack: 20 s later in the first build, 2 s after the review fixes | Pass |
+| Phone away | Bluetooth off, skip Cold shower, then on | No ask in 35 s while off. On reconnect the emulator restarted the phone's JS, which synced at once (13 logs up), so the watch's own re-ask on reconnect couldn't be seen apart from it | Pass, in part |
+| Parked time | Pushups done, Back, wait 150 s, resume, Finish routine now | "1 of 7 · 1 min" (with the park counted it would be 3) | Pass |
+| Replaced run | Pushups done, Back; start Long routine from Today | History "Gym · 1 of 7 · not finished" as its own run; an ask 2 s after each | Pass |
+| Host tests | `make -C test`, `make -C test js` | All pass | C 1,212 of 1,212, JS 81 of 81 |
+
+Not seen on the emulator: the Quick Launch note waiting for its upload (`sync_then`), a run parked past midnight ending "not finished", and Undo across a log chunk boundary. Those are platform code, checked by reading only.

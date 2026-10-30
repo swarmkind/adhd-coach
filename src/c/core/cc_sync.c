@@ -128,3 +128,8 @@ bool cc_stage_complete(const CcItem *items, int n, const uint64_t *step_mask) {
   }
   return true;
 }
+
+uint32_t cc_ask_delay_ms(int tries) {
+  static const uint32_t ms[] = { 2000, 60000, 5 * 60000, 15 * 60000 };
+  return ms[tries < 3 ? tries : 3];
+}

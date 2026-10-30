@@ -328,3 +328,66 @@ test('text that is not a number never changes the decimals', function () {
   assert.equal(M.decimalsFor('abc.5'), 0);
   assert.equal(M.decimalsFor('.5'), 1);
 });
+
+// Step outcomes (0x80 | step: 1 done, 0 skipped) and a run's end (0xBF done, 0xBE skipped, 0xBD not finished:
+// steps << 25 | done << 20 | seconds).
+var RUN_LOGS = [
+  { t: 1000, item: 5, step: 0x80, v: 1, label: 'Gym', stepName: 'Pushups' },
+  { t: 1000, item: 5, step: 0, v: 22, label: 'Gym · Pushups', unit: '', dec: 0 },
+  { t: 1100, item: 5, step: 0x81, v: 0, label: 'Gym', stepName: 'Plank' },
+  { t: 1200, item: 5, step: 0x82, v: 1, label: 'Gym', stepName: 'Stretch' },
+  { t: 3040, item: 5, step: 0xBF, v: 3 << 25 | 2 << 20 | 2040, label: 'Gym' },
+  { t: 4000, item: 6, step: 0x80, v: 0, label: 'Morning', stepName: 'Water' },
+  { t: 4001, item: 6, step: 0xBE, v: 1 << 25 | 30, label: 'Morning' },
+  { t: 5000, item: 5, step: 0x80, v: 1, label: 'Gym', stepName: 'Pushups' }
+];
+
+test('History groups step outcomes into routine runs, newest first', function () {
+  var r = M.runs(RUN_LOGS, 0);
+  assert.equal(r.length, 3);
+  assert.deepEqual([r[0].name, r[0].result, r[0].done, r[0].of], ['Gym', 'open', 1, 0]);
+  assert.deepEqual([r[1].name, r[1].result, r[1].done, r[1].of, r[1].secs], ['Morning', 'skipped', 0, 1, 30]);
+  assert.deepEqual([r[2].name, r[2].result, r[2].done, r[2].of, r[2].secs, r[2].t], ['Gym', 'done', 2, 3, 2040, 3040]);
+  assert.deepEqual(r[2].skipped, ['Plank']);
+  assert.equal(M.runText(r[2]), '2 of 3 · 34 min');
+  assert.equal(M.runText(r[1]), 'skipped · 0 of 1');
+  assert.equal(M.runText(r[0]), '1 done · not finished');
+  assert.equal(M.runText({ result: 'done', done: 4, of: 4, secs: 0 }), '4 of 4');
+});
+
+test('a run left unfinished, or never ended before another day, stands on its own', function () {
+  var DAY = 86400, logs = [
+    { t: 1000, item: 5, step: 0x80, v: 1, label: 'Gym', stepName: 'Pushups' },
+    { t: DAY + 1000, item: 5, step: 0x80, v: 1, label: 'Gym', stepName: 'Pushups' },
+    { t: DAY + 1100, item: 5, step: 0x81, v: 1, label: 'Gym', stepName: 'Plank' },
+    { t: DAY + 1200, item: 5, step: 0xBF, v: 2 << 25 | 2 << 20 | 200, label: 'Gym' },
+    { t: DAY + 2000, item: 5, step: 0x80, v: 1, label: 'Gym', stepName: 'Pushups' },
+    { t: DAY + 2100, item: 5, step: 0xBD, v: 2 << 25 | 1 << 20 | 100, label: 'Gym' }
+  ];
+  var r = M.runs(logs, 0);
+  assert.equal(r.length, 3);
+  assert.deepEqual([r[0].result, r[0].done, r[0].of], ['left', 1, 2]);
+  assert.equal(M.runText(r[0]), '1 of 2 \u00b7 not finished');
+  assert.deepEqual([r[1].result, r[1].done, r[1].of], ['done', 2, 2]);
+  assert.deepEqual([r[2].result, r[2].done, r[2].t], ['open', 1, 1000]);
+  assert.equal(M.csvRuns(logs, 0).split('\n')[3], '1970-01-02,00:35,Gym,not finished,1,2,2,');
+  // The end's count stands even when the page kept none of the run's outcomes.
+  var cut = [{ t: 3040, item: 5, step: 0xBF, v: 3 << 25 | 3 << 20 | 2040, label: 'Gym' }];
+  assert.equal(M.runText(M.runs(cut, 0)[0]), '3 of 3 \u00b7 34 min');
+});
+
+test('outcomes stay out of the numbers', function () {
+  var s = M.series(RUN_LOGS);
+  assert.equal(s.length, 1);
+  assert.equal(s[0][0].label, 'Gym · Pushups');
+  assert.equal(M.csvNumbers(RUN_LOGS, 0).split('\n').length, 2);
+});
+
+test('routines export as CSV, one row a run', function () {
+  var rows = M.csvRuns(RUN_LOGS, 0).split('\n');
+  assert.equal(rows[0], 'date,time,routine,result,done,steps,minutes,skipped');
+  assert.equal(rows.length, 4);
+  assert.equal(rows[1], '1970-01-01,00:50,Gym,done,2,3,34,Plank');
+  assert.equal(rows[2], '1970-01-01,01:06,Morning,skipped,0,1,1,Water');
+  assert.equal(rows[3], '1970-01-01,01:23,Gym,not finished,1,,,');
+});
